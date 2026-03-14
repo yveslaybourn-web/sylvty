@@ -102,6 +102,53 @@ contextBridge.exposeInMainWorld('shadownet', {
     execute: (cmd) => ipcRenderer.invoke('command:execute', { cmd })
   },
 
+  // ─── EVASION ENGINE ───────────────────────────────────────────────
+  evasion: {
+    randomizeJA3: () => ipcRenderer.invoke('evasion:randomize-ja3'),
+    addProxy: (proxy) => ipcRenderer.invoke('evasion:add-proxy', { proxy }),
+    loadProxies: (text) => ipcRenderer.invoke('evasion:load-proxies', { text }),
+    rotateProxy: () => ipcRenderer.invoke('evasion:rotate-proxy'),
+    startRotation: (interval) => ipcRenderer.invoke('evasion:start-rotation', { interval }),
+    stopRotation: () => ipcRenderer.invoke('evasion:stop-rotation'),
+    rotationStatus: () => ipcRenderer.invoke('evasion:rotation-status'),
+    getNoiseScript: () => ipcRenderer.invoke('evasion:get-noise-script')
+  },
+
+  // ─── FORENSIC MODE ────────────────────────────────────────────────
+  forensic: {
+    toggleZeroDisk: (enabled) => ipcRenderer.invoke('forensic:toggle-zero-disk', { enabled }),
+    wipe: () => ipcRenderer.invoke('forensic:wipe'),
+    snapshot: (tabId, html) => ipcRenderer.invoke('forensic:snapshot', { tabId, html }),
+    compare: (tabId, html) => ipcRenderer.invoke('forensic:compare', { tabId, html }),
+    getDOMTrackerScript: () => ipcRenderer.invoke('forensic:dom-tracker-script')
+  },
+
+  // ─── SCRIPT INJECTOR ──────────────────────────────────────────────
+  scripts: {
+    list: () => ipcRenderer.invoke('scripts:list'),
+    add: (script) => ipcRenderer.invoke('scripts:add', script),
+    remove: (id) => ipcRenderer.invoke('scripts:remove', { id }),
+    toggle: (id) => ipcRenderer.invoke('scripts:toggle', { id }),
+    forDomain: (domain) => ipcRenderer.invoke('scripts:for-domain', { domain }),
+    toPython: (request) => ipcRenderer.invoke('scripts:to-python', { request }),
+    toNodeJS: (request) => ipcRenderer.invoke('scripts:to-nodejs', { request }),
+    toCurl: (request) => ipcRenderer.invoke('scripts:to-curl', { request })
+  },
+
+  // ─── TERMINAL ─────────────────────────────────────────────────────
+  terminal: {
+    create: () => ipcRenderer.invoke('terminal:create'),
+    write: (data) => ipcRenderer.invoke('terminal:write', { data }),
+    resize: (cols, rows) => ipcRenderer.invoke('terminal:resize', { cols, rows }),
+    kill: () => ipcRenderer.invoke('terminal:kill')
+  },
+
+  // ─── PIPE DATA ────────────────────────────────────────────────────
+  pipe: {
+    writeFile: (filePath, data) => ipcRenderer.invoke('pipe:write-file', { filePath, data }),
+    appendFile: (filePath, data) => ipcRenderer.invoke('pipe:append-file', { filePath, data })
+  },
+
   // ─── ÉVÉNEMENTS (Écoute depuis le main process) ────────────────────
   on: (channel, callback) => {
     // Liste blanche des événements autorisés depuis le main process
@@ -110,11 +157,15 @@ contextBridge.exposeInMainWorld('shadownet', {
       'burn-session-shortcut',
       'toggle-proxy-shortcut',
       'toggle-split-screen',
+      'toggle-hacker-panel',
+      'toggle-terminal',
       'external-link',
       'proxy-request-intercepted',
       'waf-detected',
       'api-key-leaked',
-      'security-header-missing'
+      'security-header-missing',
+      'terminal:data',
+      'terminal:exit'
     ];
     if (allowedEvents.includes(channel)) {
       ipcRenderer.on(channel, (event, ...args) => callback(...args));

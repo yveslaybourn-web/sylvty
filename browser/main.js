@@ -22,6 +22,9 @@ const { app, BrowserWindow, ipcMain, session, globalShortcut, dialog, Menu } = r
 const path = require('path');
 const { InterceptionProxy } = require('./core/interception-proxy');
 const { SessionManager } = require('./core/session-manager');
+const { EvasionEngine } = require('./modules/evasion-engine');
+const { ForensicMode } = require('./modules/forensic-mode');
+const { ScriptInjectorEngine } = require('./modules/script-injector-engine');
 
 // ═══════════════════════════════════════════════════════════════════════
 // VARIABLES GLOBALES
@@ -30,6 +33,10 @@ const { SessionManager } = require('./core/session-manager');
 let mainWindow = null;
 let interceptionProxy = null;
 let sessionManager = null;
+let evasionEngine = null;
+let forensicMode = null;
+let scriptInjector = null;
+let ptyProcess = null; // Terminal PTY
 
 // Liste blanche des canaux IPC autorisés — Sécurité : empêche l'accès
 // arbitraire aux API Node.js depuis le renderer
@@ -126,12 +133,19 @@ function createMainWindow() {
 
 function initSecurityModules() {
   // Initialiser le proxy d'interception
-  // Ce module intercepte toutes les requêtes HTTP/HTTPS passant par le navigateur
   interceptionProxy = new InterceptionProxy(session.defaultSession);
 
   // Initialiser le gestionnaire de sessions anti-fingerprinting
-  // Ce module gère le spoofing d'empreinte numérique
   sessionManager = new SessionManager(session.defaultSession);
+
+  // Initialiser le moteur d'évasion (JA3, proxy rotation, noise avancé)
+  evasionEngine = new EvasionEngine(session.defaultSession);
+
+  // Initialiser le mode forensique (zero-disk, DOM tracker)
+  forensicMode = new ForensicMode(session.defaultSession);
+
+  // Initialiser le script injector
+  scriptInjector = new ScriptInjectorEngine();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -526,6 +540,185 @@ function registerIPCHandlers() {
       return { error: err.message };
     }
   });
+
+  // ─── EVASION ENGINE ────────────────────────────────────────────────
+
+  ipcMain.handle('evasion:randomize-ja3', async () => {
+    return evasionEngine.randomizeJA3();
+  });
+
+  ipcMain.handle('evasion:add-proxy', async (event, { proxy }) => {
+    return { pool: evasionEngine.addProxy(proxy) };
+  });
+
+  ipcMain.handle('evasion:load-proxies', async (event, { text }) => {
+    return { pool: evasionEngine.loadProxies(text) };
+  });
+
+  ipcMain.handle('evasion:rotate-proxy', async () => {
+    return await evasionEngine.rotateProxy();
+  });
+
+  ipcMain.handle('evasion:start-rotation', async (event, { interval }) => {
+    evasionEngine.startRotation(interval);
+    return { started: true };
+  });
+
+  ipcMain.handle('evasion:stop-rotation', async () => {
+    evasionEngine.stopRotation();
+    return { stopped: true };
+  });
+
+  ipcMain.handle('evasion:rotation-status', async () => {
+    return evasionEngine.getRotationStatus();
+  });
+
+  ipcMain.handle('evasion:get-noise-script', async () => {
+    return { script: evasionEngine.getAdvancedNoiseScript() };
+  });
+
+  // ─── FORENSIC MODE ────────────────────────────────────────────────
+
+  ipcMain.handle('forensic:toggle-zero-disk', async (event, { enabled }) => {
+    if (enabled) {
+      return forensicMode.enableZeroDisk();
+    } else {
+      return forensicMode.disableZeroDisk();
+    }
+  });
+
+  ipcMain.handle('forensic:wipe', async () => {
+    return await forensicMode.performMultiPassWipe();
+  });
+
+  ipcMain.handle('forensic:snapshot', async (event, { tabId, html }) => {
+    return forensicMode.takeSnapshot(tabId, html);
+  });
+
+  ipcMain.handle('forensic:compare', async (event, { tabId, html }) => {
+    return forensicMode.compareWithSnapshot(tabId, html);
+  });
+
+  ipcMain.handle('forensic:dom-tracker-script', async () => {
+    return { script: forensicMode.getDOMTrackerScript() };
+  });
+
+  // ─── SCRIPT INJECTOR ──────────────────────────────────────────────
+
+  ipcMain.handle('scripts:list', async () => {
+    return scriptInjector.getAllScripts();
+  });
+
+  ipcMain.handle('scripts:add', async (event, script) => {
+    return { id: scriptInjector.addScript(script) };
+  });
+
+  ipcMain.handle('scripts:remove', async (event, { id }) => {
+    return { removed: scriptInjector.removeScript(id) };
+  });
+
+  ipcMain.handle('scripts:toggle', async (event, { id }) => {
+    return { enabled: scriptInjector.toggleScript(id) };
+  });
+
+  ipcMain.handle('scripts:for-domain', async (event, { domain }) => {
+    return scriptInjector.getScriptsForDomain(domain);
+  });
+
+  ipcMain.handle('scripts:to-python', async (event, { request }) => {
+    return { code: scriptInjector.toPython(request) };
+  });
+
+  ipcMain.handle('scripts:to-nodejs', async (event, { request }) => {
+    return { code: scriptInjector.toNodeJS(request) };
+  });
+
+  ipcMain.handle('scripts:to-curl', async (event, { request }) => {
+    return { code: scriptInjector.toCurl(request) };
+  });
+
+  // ─── TERMINAL INTÉGRÉ (via node-pty) ──────────────────────────────
+
+  ipcMain.handle('terminal:create', async () => {
+    try {
+      const pty = require('node-pty');
+      const shell = process.platform === 'win32' ? 'powershell.exe' :
+                     process.env.SHELL || '/bin/bash';
+
+      ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd: process.env.HOME || process.cwd(),
+        env: { ...process.env, TERM: 'xterm-256color' }
+      });
+
+      // Transmettre les données du terminal au renderer
+      ptyProcess.onData((data) => {
+        if (mainWindow) {
+          mainWindow.webContents.send('terminal:data', data);
+        }
+      });
+
+      ptyProcess.onExit(({ exitCode }) => {
+        if (mainWindow) {
+          mainWindow.webContents.send('terminal:exit', exitCode);
+        }
+        ptyProcess = null;
+      });
+
+      return { success: true, pid: ptyProcess.pid };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('terminal:write', async (event, { data }) => {
+    if (ptyProcess) {
+      ptyProcess.write(data);
+      return { success: true };
+    }
+    return { success: false, error: 'Terminal non initialisé' };
+  });
+
+  ipcMain.handle('terminal:resize', async (event, { cols, rows }) => {
+    if (ptyProcess) {
+      ptyProcess.resize(cols, rows);
+      return { success: true };
+    }
+    return { success: false };
+  });
+
+  ipcMain.handle('terminal:kill', async () => {
+    if (ptyProcess) {
+      ptyProcess.kill();
+      ptyProcess = null;
+      return { success: true };
+    }
+    return { success: false };
+  });
+
+  // ─── PIPE DATA TO FILE ────────────────────────────────────────────
+
+  ipcMain.handle('pipe:write-file', async (event, { filePath, data }) => {
+    const fs = require('fs').promises;
+    try {
+      await fs.writeFile(filePath, data, 'utf-8');
+      return { success: true, path: filePath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('pipe:append-file', async (event, { filePath, data }) => {
+    const fs = require('fs').promises;
+    try {
+      await fs.appendFile(filePath, data + '\n', 'utf-8');
+      return { success: true, path: filePath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -640,6 +833,20 @@ function registerGlobalShortcuts() {
       mainWindow.webContents.send('toggle-split-screen');
     }
   });
+
+  // Ctrl+Shift+H — Toggle Hacker Panel
+  globalShortcut.register('CommandOrControl+Shift+H', () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('toggle-hacker-panel');
+    }
+  });
+
+  // Ctrl+` — Toggle Terminal
+  globalShortcut.register('CommandOrControl+`', () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('toggle-terminal');
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -669,9 +876,20 @@ app.on('activate', () => {
   }
 });
 
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   // Libérer tous les raccourcis globaux
   globalShortcut.unregisterAll();
+
+  // Si le mode Zero-Disk est actif, effectuer un wipe multi-pass
+  if (forensicMode && forensicMode.isZeroDiskEnabled()) {
+    await forensicMode.performMultiPassWipe();
+  }
+
+  // Tuer le processus terminal si actif
+  if (ptyProcess) {
+    ptyProcess.kill();
+    ptyProcess = null;
+  }
 });
 
 // Sécurité : Empêcher l'ouverture de nouvelles fenêtres non contrôlées

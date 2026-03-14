@@ -32,6 +32,12 @@
         <span id="spoof-indicator" class="indicator on" title="Fingerprint spoofé">
           ◬ SPOOF
         </span>
+        <span id="zerodisk-indicator" class="indicator off" title="Zero-Disk Mode">
+          💀 ZERO
+        </span>
+        <span id="secrets-indicator" class="indicator off" title="Secrets Hunter">
+          🔑 HUNT
+        </span>
       </div>
     </div>
     <div class="titlebar-right">
@@ -66,6 +72,7 @@
       <button class="tool-btn active" id="btn-toggle-spoof" title="Toggle Spoofing">◬</button>
       <button class="tool-btn" id="btn-toggle-tor" title="Toggle Tor">◎</button>
       <button class="tool-btn danger" id="btn-burn" title="Burn Session (Ctrl+Shift+B)">🔥</button>
+      <button class="tool-btn" id="btn-hacker-panel" title="Hacker Panel (Ctrl+Shift+H)">⚔</button>
       <button class="tool-btn" id="btn-command-palette" title="Command Palette (Ctrl+Shift+P)">⌘</button>
     </div>
   </div>
@@ -320,6 +327,41 @@
         <div id="hex-content" class="hex-viewer-content"></div>
       </div>
 
+      <!-- Panneau Script Injector -->
+      <div id="panel-scriptinject" class="tool-panel hidden">
+        <h3 class="panel-title">◈ SCRIPT INJECTOR</h3>
+        <div class="panel-section">
+          <h4>Scripts Personnalisés</h4>
+          <div id="script-list" class="results-container" style="min-height:100px"></div>
+          <div style="margin-top:8px">
+            <input type="text" id="script-name" class="cyber-input" placeholder="Nom du script">
+            <input type="text" id="script-domain" class="cyber-input" placeholder="Domaine cible (* = tous)">
+            <textarea id="script-code" class="cyber-textarea" placeholder="Code JavaScript à injecter..." rows="6"></textarea>
+            <button class="action-btn" id="btn-add-script">Ajouter Script</button>
+          </div>
+        </div>
+        <div class="panel-section">
+          <h4>Convertir Requête</h4>
+          <p style="color:var(--text-muted);font-size:10px;margin-bottom:6px">Sélectionnez une requête dans le réseau puis :</p>
+          <div style="display:flex;gap:4px">
+            <button class="action-btn" id="btn-to-python">Python</button>
+            <button class="action-btn" id="btn-to-nodejs">Node.js</button>
+            <button class="action-btn" id="btn-to-curl">cURL</button>
+          </div>
+          <div id="convert-output" class="results-container" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      <!-- Panneau Terminal -->
+      <div id="panel-terminal" class="tool-panel hidden">
+        <h3 class="panel-title">◈ TERMINAL</h3>
+        <div class="panel-section">
+          <button class="action-btn" id="btn-start-terminal">Démarrer Terminal</button>
+          <button class="action-btn danger" id="btn-kill-terminal">Arrêter</button>
+        </div>
+        <div id="terminal-container" class="terminal-container"></div>
+      </div>
+
     </div>
   </div>
 
@@ -335,12 +377,15 @@
       <button class="toolbar-tab" data-panel="ai" title="Assistant IA">◈ IA</button>
       <button class="toolbar-tab" data-panel="proxy" title="Proxy d'interception">⬡ PROXY</button>
       <button class="toolbar-tab" data-panel="hex" title="Hex Viewer">⬢ HEX</button>
+      <button class="toolbar-tab" data-panel="scriptinject" title="Script Injector">💉 INJECT</button>
+      <button class="toolbar-tab" data-panel="terminal" title="Terminal intégré">⌨ TERM</button>
     </div>
     <div class="toolbar-info">
       <span id="info-requests">Req: 0</span>
       <span id="info-intercepted">Int: 0</span>
       <span id="info-alerts">Alertes: 0</span>
       <span id="info-ua" title="User-Agent actuel">UA: —</span>
+      <span id="info-secrets" style="color:var(--neon-red)"></span>
     </div>
   </div>
 
@@ -368,6 +413,7 @@
   <script src="renderer.js"></script>
   <script src="components/command-palette.js"></script>
   <script src="components/hex-viewer.js"></script>
+  <script src="components/hacker-panel.js"></script>
 
 </body>
 </html>

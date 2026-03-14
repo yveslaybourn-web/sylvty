@@ -11,7 +11,10 @@
  * - Navigation et barre d'URL
  * - Gestion des onglets (arbre vertical)
  * - Split-screen (page + réseau/DOM)
- * - Panneaux d'outils (RECON, CRYPTO, VULN, PAYLOADS, IA, PROXY)
+ * - Panneaux d'outils (RECON, CRYPTO, VULN, PAYLOADS, IA, PROXY, INJECT, TERM)
+ * - Hacker Panel (style Minecraft hack client)
+ * - Script Injector (bibliothèque de scripts persistants)
+ * - Terminal intégré (xterm.js via node-pty)
  * - Notifications toast
  * - Moniteur système en temps réel
  * - Événements clavier et raccourcis
@@ -50,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initCryptoPanel();
   initVulnPanel();
   initAIPanel();
+  initScriptInjectorPanel();
+  initTerminalPanel();
   initSystemMonitor();
   initEventListeners();
   initKeyboardShortcuts();
@@ -447,6 +452,16 @@ function initToolPanels() {
   document.getElementById('btn-close-right').addEventListener('click', () => {
     hideRightPanel();
   });
+
+  // Bouton Hacker Panel
+  const hackerBtn = document.getElementById('btn-hacker-panel');
+  if (hackerBtn) {
+    hackerBtn.addEventListener('click', () => {
+      if (typeof toggleHackerPanel === 'function') {
+        toggleHackerPanel();
+      }
+    });
+  }
 }
 
 function toggleRightPanel(panelName) {
@@ -474,7 +489,8 @@ function toggleRightPanel(panelName) {
     const titles = {
       recon: 'RECONNAISSANCE', crypto: 'CRYPTO TOOLKIT',
       vuln: 'VULNÉRABILITÉS', payloads: 'PAYLOADS',
-      ai: 'ASSISTANT IA', proxy: 'INTERCEPT PROXY', hex: 'HEX VIEWER'
+      ai: 'ASSISTANT IA', proxy: 'INTERCEPT PROXY', hex: 'HEX VIEWER',
+      scriptinject: 'SCRIPT INJECTOR', terminal: 'TERMINAL'
     };
     document.getElementById('right-panel-title').textContent = titles[panelName] || 'OUTILS';
   }
@@ -1204,9 +1220,41 @@ function initEventListeners() {
     toggleSplitScreen();
   });
 
+  // Toggle Hacker Panel (raccourci Ctrl+Shift+H)
+  window.shadownet.on('toggle-hacker-panel', () => {
+    if (typeof toggleHackerPanel === 'function') {
+      toggleHackerPanel();
+    }
+  });
+
+  // Toggle Terminal (raccourci Ctrl+`)
+  window.shadownet.on('toggle-terminal', () => {
+    toggleRightPanel('terminal');
+  });
+
   // Lien externe (nouvelle fenêtre interceptée)
   window.shadownet.on('external-link', (url) => {
     createNewTab(url);
+  });
+
+  // Alertes de sécurité en temps réel
+  window.shadownet.on('proxy-request-intercepted', (data) => {
+    state.requestCount++;
+    document.getElementById('info-requests').textContent = `Req: ${state.requestCount}`;
+  });
+
+  window.shadownet.on('waf-detected', (data) => {
+    showToast('warning', 'WAF Détecté', `${data.waf || 'WAF inconnu'} sur ${data.domain || 'cible'}`);
+  });
+
+  window.shadownet.on('api-key-leaked', (data) => {
+    showToast('danger', 'Fuite de Clé API!', `${data.type || 'Clé'} détectée dans ${data.source || 'requête'}`);
+    state.alertCount++;
+    document.getElementById('info-alerts').textContent = `Alertes: ${state.alertCount}`;
+  });
+
+  window.shadownet.on('security-header-missing', (data) => {
+    showToast('warning', 'Header Manquant', `${data.header || 'Header de sécurité'} absent`);
   });
 }
 
@@ -1287,6 +1335,253 @@ function showToast(type, title, message, duration = 4000) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// PANNEAU SCRIPT INJECTOR
+// ═══════════════════════════════════════════════════════════════════════
+
+function initScriptInjectorPanel() {
+  const btnAdd = document.getElementById('btn-add-script');
+  const scriptsList = document.getElementById('scripts-list');
+
+  if (btnAdd) {
+    btnAdd.addEventListener('click', async () => {
+      const domain = document.getElementById('script-domain').value.trim() || '*';
+      const code = document.getElementById('script-code').value.trim();
+
+      if (!code) {
+        showToast('warning', 'Code vide', 'Entrez du code JavaScript à injecter');
+        return;
+      }
+
+      await window.shadownet.scripts.add({
+        name: `Script ${Date.now()}`,
+        domain: domain,
+        code: code,
+        enabled: true
+      });
+
+      document.getElementById('script-code').value = '';
+      document.getElementById('script-domain').value = '';
+      showToast('success', 'Script Ajouté', `Injection active sur ${domain}`);
+      refreshScriptsList();
+    });
+  }
+
+  // Boutons de conversion (Copy as...)
+  const btnPython = document.getElementById('btn-to-python');
+  const btnNodeJS = document.getElementById('btn-to-nodejs');
+  const btnCurl = document.getElementById('btn-to-curl');
+
+  if (btnPython) {
+    btnPython.addEventListener('click', async () => {
+      await convertLastRequest('python');
+    });
+  }
+
+  if (btnNodeJS) {
+    btnNodeJS.addEventListener('click', async () => {
+      await convertLastRequest('nodejs');
+    });
+  }
+
+  if (btnCurl) {
+    btnCurl.addEventListener('click', async () => {
+      await convertLastRequest('curl');
+    });
+  }
+
+  // Charger les scripts existants
+  refreshScriptsList();
+}
+
+async function convertLastRequest(format) {
+  try {
+    const requests = await window.shadownet.proxy.getRequests();
+    if (!requests || requests.length === 0) {
+      showToast('warning', 'Aucune requête', 'Activez le proxy et naviguez d\'abord');
+      return;
+    }
+
+    const lastReq = requests[requests.length - 1];
+    let result;
+
+    switch (format) {
+      case 'python':
+        result = await window.shadownet.scripts.toPython(lastReq);
+        break;
+      case 'nodejs':
+        result = await window.shadownet.scripts.toNodeJS(lastReq);
+        break;
+      case 'curl':
+        result = await window.shadownet.scripts.toCurl(lastReq);
+        break;
+    }
+
+    if (result && result.code) {
+      document.getElementById('script-code').value = result.code;
+      showToast('success', `${format.toUpperCase()}`, 'Code généré — copiez depuis le champ ci-dessus');
+    }
+  } catch (err) {
+    showToast('danger', 'Erreur', err.message || 'Conversion échouée');
+  }
+}
+
+async function refreshScriptsList() {
+  const container = document.getElementById('scripts-list');
+  if (!container) return;
+
+  try {
+    const scripts = await window.shadownet.scripts.list();
+
+    if (!scripts || scripts.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Aucun script enregistré</div>';
+      return;
+    }
+
+    container.innerHTML = scripts.map(s => `
+      <div class="script-item" data-script-id="${s.id}" style="
+        display:flex;justify-content:space-between;align-items:center;
+        padding:8px 12px;margin-bottom:4px;
+        background:rgba(0,255,65,0.05);border:1px solid rgba(0,255,65,0.1);
+        border-radius:4px;font-size:12px;
+      ">
+        <div style="flex:1">
+          <span style="color:${s.enabled ? 'var(--neon-green)' : 'var(--text-muted)'}">${escapeHtml(s.name)}</span>
+          <span style="color:var(--text-muted);margin-left:8px">[${escapeHtml(s.domain)}]</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="script-toggle" data-id="${s.id}" style="
+            background:${s.enabled ? 'var(--neon-green)' : 'var(--neon-red)'};
+            color:#000;border:none;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;
+          ">${s.enabled ? 'ON' : 'OFF'}</button>
+          <button class="script-remove" data-id="${s.id}" style="
+            background:var(--neon-red);color:#000;border:none;padding:2px 8px;
+            border-radius:3px;cursor:pointer;font-size:10px;
+          ">✕</button>
+        </div>
+      </div>
+    `).join('');
+
+    // Événements toggle/remove
+    container.querySelectorAll('.script-toggle').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await window.shadownet.scripts.toggle(btn.dataset.id);
+        refreshScriptsList();
+      });
+    });
+
+    container.querySelectorAll('.script-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await window.shadownet.scripts.remove(btn.dataset.id);
+        refreshScriptsList();
+        showToast('info', 'Script supprimé', 'Le script a été retiré de la bibliothèque');
+      });
+    });
+  } catch {
+    container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Erreur de chargement</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PANNEAU TERMINAL INTÉGRÉ
+// ═══════════════════════════════════════════════════════════════════════
+
+let terminalActive = false;
+
+function initTerminalPanel() {
+  const btnStart = document.getElementById('btn-start-terminal');
+  const btnKill = document.getElementById('btn-kill-terminal');
+  const container = document.getElementById('terminal-container');
+
+  if (btnStart) {
+    btnStart.addEventListener('click', async () => {
+      if (terminalActive) return;
+
+      try {
+        await window.shadownet.terminal.create();
+        terminalActive = true;
+        btnStart.disabled = true;
+        btnKill.disabled = false;
+
+        // Créer le terminal visuel (textarea fallback si xterm.js non dispo)
+        initTerminalDisplay(container);
+
+        showToast('success', 'Terminal Démarré', 'Shell local connecté');
+      } catch (err) {
+        showToast('danger', 'Erreur Terminal', err.message || 'Impossible de démarrer le terminal');
+      }
+    });
+  }
+
+  if (btnKill) {
+    btnKill.addEventListener('click', async () => {
+      if (!terminalActive) return;
+
+      await window.shadownet.terminal.kill();
+      terminalActive = false;
+      btnStart.disabled = false;
+      btnKill.disabled = true;
+
+      container.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">Terminal arrêté</div>';
+      showToast('info', 'Terminal Arrêté', 'Le shell a été fermé');
+    });
+  }
+
+  // Écouter les données du terminal
+  window.shadownet.on('terminal:data', (data) => {
+    appendTerminalOutput(data);
+  });
+
+  window.shadownet.on('terminal:exit', () => {
+    terminalActive = false;
+    if (btnStart) btnStart.disabled = false;
+    if (btnKill) btnKill.disabled = true;
+    showToast('info', 'Terminal Fermé', 'Le processus shell s\'est terminé');
+  });
+}
+
+function initTerminalDisplay(container) {
+  if (!container) return;
+
+  // Fallback textarea-based terminal
+  container.innerHTML = `
+    <div id="term-output" style="
+      width:100%;height:calc(100% - 40px);overflow-y:auto;
+      background:#0a0a0a;color:#00ff41;font-family:'Fira Code',monospace;
+      font-size:13px;padding:10px;white-space:pre-wrap;word-break:break-all;
+    "></div>
+    <div style="display:flex;border-top:1px solid rgba(0,255,65,0.2)">
+      <span style="color:var(--neon-green);padding:8px 4px 8px 10px;font-family:monospace">$</span>
+      <input type="text" id="term-input" style="
+        flex:1;background:transparent;border:none;color:#00ff41;
+        font-family:'Fira Code',monospace;font-size:13px;padding:8px;
+        outline:none;
+      " placeholder="Tapez une commande..." autofocus>
+    </div>
+  `;
+
+  const input = document.getElementById('term-input');
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const cmd = input.value;
+        if (cmd.trim()) {
+          appendTerminalOutput(`$ ${cmd}\n`);
+          window.shadownet.terminal.write(cmd + '\n');
+          input.value = '';
+        }
+      }
+    });
+  }
+}
+
+function appendTerminalOutput(data) {
+  const output = document.getElementById('term-output');
+  if (!output) return;
+  output.textContent += data;
+  output.scrollTop = output.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // UTILITAIRES
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1361,7 +1656,7 @@ function toggleCommandPalette() {
   }
 }
 
-// Exposer globalement pour command-palette.js
+// Exposer globalement pour command-palette.js et hacker-panel.js
 window.toggleCommandPalette = toggleCommandPalette;
 window.showToast = showToast;
 window.navigateTo = navigateTo;
@@ -1369,3 +1664,5 @@ window.state = state;
 window.toggleSplitScreen = toggleSplitScreen;
 window.createNewTab = createNewTab;
 window.toggleRightPanel = toggleRightPanel;
+window.getActiveWebview = getActiveWebview;
+window.refreshScriptsList = refreshScriptsList;
