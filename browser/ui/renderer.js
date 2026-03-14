@@ -55,12 +55,23 @@ document.addEventListener('DOMContentLoaded', () => {
   initAIPanel();
   initScriptInjectorPanel();
   initTerminalPanel();
+  initHistoryPanel();
+  initBookmarksPanel();
+  initScopePanel();
+  initNotesPanel();
+  initRequestEditor();
   initSystemMonitor();
   initEventListeners();
   initKeyboardShortcuts();
 
+  // Initialiser le diff viewer (chargé depuis composant)
+  if (typeof initDiffViewer === 'function') initDiffViewer();
+
   // Charger le fingerprint initial
   loadFingerprint();
+
+  // Charger la config persistante
+  loadPersistedConfig();
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -258,6 +269,10 @@ function createWebview(tabId, url) {
     resolveUrlInfo(e.url);
     state.currentUrl = e.url;
     state.currentDomain = extractDomain(e.url);
+    // C11 — Enregistrer dans l'historique
+    if (e.url && e.url !== 'about:blank') {
+      window.shadownet.history.add(e.url, '');
+    }
   });
 
   webview.addEventListener('page-title-updated', (e) => {
@@ -490,7 +505,9 @@ function toggleRightPanel(panelName) {
       recon: 'RECONNAISSANCE', crypto: 'CRYPTO TOOLKIT',
       vuln: 'VULNÉRABILITÉS', payloads: 'PAYLOADS',
       ai: 'ASSISTANT IA', proxy: 'INTERCEPT PROXY', hex: 'HEX VIEWER',
-      scriptinject: 'SCRIPT INJECTOR', terminal: 'TERMINAL'
+      scriptinject: 'SCRIPT INJECTOR', terminal: 'TERMINAL',
+      history: 'HISTORIQUE', bookmarks: 'CIBLES & BOOKMARKS',
+      diff: 'COMPARATEUR DIFF', scope: 'SCOPE MANAGER', notes: 'NOTES & RAPPORT'
     };
     document.getElementById('right-panel-title').textContent = titles[panelName] || 'OUTILS';
   }
@@ -590,13 +607,14 @@ async function refreshNetworkTable() {
     document.getElementById('info-requests').textContent = `Req: ${requests.length}`;
     document.getElementById('stat-requests').textContent = requests.length;
 
-    tbody.innerHTML = requests.slice(-50).reverse().map(req => {
+    const displayRequests = requests.slice(-50).reverse();
+    tbody.innerHTML = displayRequests.map((req, i) => {
       const statusClass = getStatusClass(req.statusCode);
       const flags = (req.security?.flags || []).map(f =>
         `<span class="flag-badge">${escapeHtml(f)}</span>`
       ).join('');
 
-      return `<tr>
+      return `<tr class="network-row" data-req-idx="${i}" style="cursor:pointer" title="Cliquer pour charger dans l'éditeur">
         <td><span style="color:var(--neon-yellow)">${escapeHtml(req.method)}</span></td>
         <td title="${escapeHtml(req.url)}">${escapeHtml(truncate(req.url, 60))}</td>
         <td><span class="status-badge ${statusClass}">${req.statusCode || '—'}</span></td>
@@ -604,6 +622,16 @@ async function refreshNetworkTable() {
         <td>${flags}</td>
       </tr>`;
     }).join('');
+
+    // A4 — Clic sur une ligne pour charger dans l'éditeur de tampering
+    tbody.querySelectorAll('.network-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const idx = parseInt(row.dataset.reqIdx);
+        if (displayRequests[idx]) {
+          loadRequestInEditor(displayRequests[idx]);
+        }
+      });
+    });
   } catch { /* Ignorer les erreurs silencieusement */ }
 }
 
@@ -1088,14 +1116,141 @@ function toggleSplitScreen() {
   }
 }
 
-// Split screen tabs
+// Split screen tabs — A1 : contenu dynamique
 document.querySelectorAll('.split-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.split-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    // TODO: Basculer le contenu du split-panel
+    switchSplitContent(tab.dataset.panel);
   });
 });
+
+/**
+ * A1 — Basculer le contenu du split-panel
+ * Gère les 4 vues : network, dom, headers, response
+ */
+function switchSplitContent(panel) {
+  // Cacher toutes les vues
+  document.querySelectorAll('#split-content .split-view').forEach(v => v.classList.add('hidden'));
+
+  const view = document.getElementById(`split-${panel}`);
+  if (view) view.classList.remove('hidden');
+
+  // Charger le contenu dynamique
+  switch (panel) {
+    case 'network':
+      refreshNetworkTable();
+      break;
+
+    case 'dom':
+      loadDOMTree();
+      break;
+
+    case 'headers':
+      loadLastHeaders();
+      break;
+
+    case 'response':
+      loadLastResponse();
+      break;
+  }
+}
+
+async function loadDOMTree() {
+  const output = document.getElementById('dom-tree-output');
+  const webview = getActiveWebview();
+  if (!webview) {
+    output.textContent = 'Aucune page chargée';
+    return;
+  }
+  output.innerHTML = '<span class="spinner"></span> Extraction du DOM...';
+
+  try {
+    const tree = await webview.executeJavaScript(`
+      (function buildTree(el, depth) {
+        if (depth > 6) return '';
+        const indent = '  '.repeat(depth);
+        let tag = el.tagName ? el.tagName.toLowerCase() : '';
+        if (!tag) return '';
+        let attrs = '';
+        if (el.id) attrs += ' id="' + el.id + '"';
+        if (el.className && typeof el.className === 'string') attrs += ' class="' + el.className.substring(0, 40) + '"';
+        if (el.href) attrs += ' href="' + el.href.substring(0, 60) + '"';
+        if (el.src) attrs += ' src="' + el.src.substring(0, 60) + '"';
+        let result = indent + '<' + tag + attrs + '>\\n';
+        const children = el.children;
+        for (let i = 0; i < Math.min(children.length, 30); i++) {
+          result += buildTree(children[i], depth + 1);
+        }
+        if (children.length > 30) result += indent + '  ... (' + (children.length - 30) + ' more)\\n';
+        return result;
+      })(document.documentElement, 0)
+    `);
+    output.innerHTML = `<span style="color:var(--neon-green)">${escapeHtml(tree)}</span>`;
+  } catch (err) {
+    output.textContent = 'Erreur: ' + err.message;
+  }
+}
+
+async function loadLastHeaders() {
+  const output = document.getElementById('headers-output');
+  try {
+    const requests = await window.shadownet.proxy.getRequests();
+    if (!requests || requests.length === 0) {
+      output.textContent = 'Aucune requête interceptée';
+      return;
+    }
+    const last = requests[requests.length - 1];
+    let html = `<span style="color:var(--neon-cyan)">═══ REQUEST ═══</span>\n`;
+    html += `<span style="color:var(--neon-yellow)">${escapeHtml(last.method)}</span> ${escapeHtml(last.url)}\n\n`;
+
+    if (last.requestHeaders) {
+      html += `<span style="color:var(--neon-cyan)">═══ REQUEST HEADERS ═══</span>\n`;
+      for (const [k, v] of Object.entries(last.requestHeaders)) {
+        html += `<span style="color:var(--neon-green)">${escapeHtml(k)}</span>: ${escapeHtml(String(v))}\n`;
+      }
+    }
+
+    if (last.responseHeaders) {
+      html += `\n<span style="color:var(--neon-cyan)">═══ RESPONSE HEADERS ═══</span>\n`;
+      html += `<span style="color:var(--neon-yellow)">Status:</span> ${last.statusCode || 'N/A'}\n`;
+      for (const [k, v] of Object.entries(last.responseHeaders)) {
+        html += `<span style="color:var(--neon-green)">${escapeHtml(k)}</span>: ${escapeHtml(String(Array.isArray(v) ? v.join(', ') : v))}\n`;
+      }
+    }
+
+    output.innerHTML = html;
+  } catch {
+    output.textContent = 'Erreur de chargement';
+  }
+}
+
+async function loadLastResponse() {
+  const output = document.getElementById('response-output');
+  try {
+    const requests = await window.shadownet.proxy.getRequests();
+    if (!requests || requests.length === 0) {
+      output.textContent = 'Aucune requête interceptée';
+      return;
+    }
+    const last = requests[requests.length - 1];
+    let html = `<span style="color:var(--neon-cyan)">═══ RÉPONSE ═══</span>\n`;
+    html += `<span style="color:var(--neon-yellow)">${escapeHtml(last.method)}</span> ${escapeHtml(last.url)}\n`;
+    html += `Status: ${last.statusCode || 'N/A'} | Type: ${escapeHtml(last.resourceType || 'N/A')}\n\n`;
+
+    if (last.body) {
+      html += `<span style="color:var(--neon-cyan)">═══ BODY ═══</span>\n`;
+      html += `<span style="color:var(--text-secondary)">${escapeHtml(last.body.substring(0, 5000))}</span>`;
+      if (last.body.length > 5000) html += '\n... (tronqué)';
+    } else {
+      html += '<span style="color:var(--text-muted)">Corps de réponse non capturé (activez le proxy pour capturer)</span>';
+    }
+
+    output.innerHTML = html;
+  } catch {
+    output.textContent = 'Erreur de chargement';
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // MONITEUR SYSTÈME
@@ -1582,6 +1737,442 @@ function appendTerminalOutput(data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// A4 — REQUEST EDITOR (TAMPERING)
+// ═══════════════════════════════════════════════════════════════════════
+
+function initRequestEditor() {
+  const btnSend = document.getElementById('btn-tamper-send');
+  const btnCurl = document.getElementById('btn-tamper-curl');
+  const btnIdor = document.getElementById('btn-refresh-idor');
+
+  if (btnSend) {
+    btnSend.addEventListener('click', async () => {
+      const method = document.getElementById('tamper-method').value;
+      const url = document.getElementById('tamper-url').value.trim();
+      const headersText = document.getElementById('tamper-headers').value.trim();
+      const body = document.getElementById('tamper-body').value;
+      const output = document.getElementById('tamper-results');
+
+      if (!url) {
+        showToast('warning', 'URL manquante', 'Entrez une URL cible');
+        return;
+      }
+
+      let headers = {};
+      try {
+        if (headersText) headers = JSON.parse(headersText);
+      } catch {
+        showToast('danger', 'Headers invalides', 'Format JSON incorrect');
+        return;
+      }
+
+      output.innerHTML = '<span class="spinner"></span> Envoi...';
+      const result = await window.shadownet.proxy.replay({ url, method, headers, body });
+
+      if (result.error) {
+        output.textContent = `Erreur: ${result.error}`;
+      } else {
+        output.innerHTML = `<span style="color:var(--neon-cyan)">Status:</span> ${result.statusCode}\n` +
+          `<span style="color:var(--neon-cyan)">Headers:</span>\n${JSON.stringify(result.headers, null, 2)}\n\n` +
+          `<span style="color:var(--neon-cyan)">Body:</span>\n${escapeHtml(result.body?.substring(0, 3000) || '')}`;
+      }
+    });
+  }
+
+  if (btnCurl) {
+    btnCurl.addEventListener('click', async () => {
+      const method = document.getElementById('tamper-method').value;
+      const url = document.getElementById('tamper-url').value.trim();
+      const headersText = document.getElementById('tamper-headers').value.trim();
+      const body = document.getElementById('tamper-body').value;
+
+      if (!url) return;
+
+      const req = { method, url, headers: {}, body };
+      try { if (headersText) req.headers = JSON.parse(headersText); } catch {}
+
+      const result = await window.shadownet.scripts.toCurl({ request: req });
+      if (result && result.code) {
+        document.getElementById('tamper-body').value = result.code;
+        showToast('success', 'cURL', 'Commande copiée dans le champ body');
+      }
+    });
+  }
+
+  if (btnIdor) {
+    btnIdor.addEventListener('click', async () => {
+      const output = document.getElementById('idor-results');
+      const candidates = await window.shadownet.proxy.getIDORCandidates();
+
+      if (!candidates || candidates.length === 0) {
+        output.textContent = 'Aucun candidat IDOR détecté — naviguez et activez le proxy';
+        return;
+      }
+
+      output.innerHTML = candidates.slice(-30).reverse().map(c => {
+        return `<div style="margin-bottom:4px;font-size:11px">` +
+          `<span style="color:var(--neon-red)">⚠ ${escapeHtml(c.name)}</span>\n` +
+          `  <span style="color:var(--neon-yellow)">${escapeHtml(c.method)}</span> ${escapeHtml(c.url)}\n` +
+          `  <span style="color:var(--text-muted)">Valeur: ${escapeHtml(c.value)} — Tester ±1</span></div>`;
+      }).join('');
+    });
+  }
+}
+
+/**
+ * Charger une requête interceptée dans l'éditeur de tampering
+ * Appelé depuis le network table au clic
+ */
+function loadRequestInEditor(request) {
+  if (!request) return;
+  document.getElementById('tamper-method').value = request.method || 'GET';
+  document.getElementById('tamper-url').value = request.url || '';
+  document.getElementById('tamper-headers').value = request.requestHeaders
+    ? JSON.stringify(request.requestHeaders, null, 2) : '';
+  document.getElementById('tamper-body').value = request.body || '';
+  toggleRightPanel('proxy');
+  showToast('info', 'Requête chargée', 'Modifiez et renvoyez depuis l\'éditeur');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// C11 — PANNEAU HISTORIQUE
+// ═══════════════════════════════════════════════════════════════════════
+
+function initHistoryPanel() {
+  const btnClear = document.getElementById('btn-clear-history');
+  if (btnClear) {
+    btnClear.addEventListener('click', async () => {
+      await window.shadownet.history.clear();
+      renderHistory();
+      showToast('info', 'Historique effacé', 'L\'historique de navigation a été vidé');
+    });
+  }
+}
+
+async function renderHistory() {
+  const container = document.getElementById('history-list');
+  if (!container) return;
+
+  try {
+    const history = await window.shadownet.history.get();
+    if (!history || history.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Aucun historique</div>';
+      return;
+    }
+
+    container.innerHTML = history.slice().reverse().slice(0, 100).map(h => {
+      const time = new Date(h.visitedAt).toLocaleTimeString('fr-FR');
+      return `<div class="history-item" style="
+        padding:6px 10px;margin-bottom:2px;cursor:pointer;
+        border-left:2px solid var(--neon-green);font-size:11px;
+        transition:background 0.2s;
+      " data-url="${escapeHtml(h.url)}">
+        <span style="color:var(--text-muted)">${time}</span>
+        <span style="color:var(--neon-cyan);margin-left:8px">${escapeHtml(h.title || extractDomain(h.url))}</span>
+        <div style="color:var(--text-secondary);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(h.url)}</div>
+      </div>`;
+    }).join('');
+
+    container.querySelectorAll('.history-item').forEach(el => {
+      el.addEventListener('click', () => navigateTo(el.dataset.url));
+      el.addEventListener('mouseenter', () => el.style.background = 'rgba(0,255,65,0.05)');
+      el.addEventListener('mouseleave', () => el.style.background = 'transparent');
+    });
+  } catch {
+    container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Erreur de chargement</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// C12 — PANNEAU BOOKMARKS / CIBLES
+// ═══════════════════════════════════════════════════════════════════════
+
+function initBookmarksPanel() {
+  const btnAdd = document.getElementById('btn-add-bookmark');
+  if (btnAdd) {
+    btnAdd.addEventListener('click', async () => {
+      const name = document.getElementById('bookmark-name').value.trim();
+      const url = document.getElementById('bookmark-url').value.trim();
+
+      if (!url) {
+        showToast('warning', 'URL manquante', 'Entrez une URL cible');
+        return;
+      }
+
+      await window.shadownet.bookmarks.add(name || url, url);
+      document.getElementById('bookmark-name').value = '';
+      document.getElementById('bookmark-url').value = '';
+      renderBookmarks();
+      showToast('success', 'Cible ajoutée', name || url);
+    });
+  }
+  renderBookmarks();
+}
+
+async function renderBookmarks() {
+  const container = document.getElementById('bookmarks-list');
+  if (!container) return;
+
+  try {
+    const bookmarks = await window.shadownet.bookmarks.list();
+    if (!bookmarks || bookmarks.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Aucune cible enregistrée</div>';
+      return;
+    }
+
+    container.innerHTML = bookmarks.map(b => `
+      <div class="bookmark-item" style="
+        display:flex;justify-content:space-between;align-items:center;
+        padding:8px 10px;margin-bottom:4px;
+        background:rgba(0,255,65,0.03);border:1px solid rgba(0,255,65,0.1);
+        border-radius:4px;font-size:11px;
+      ">
+        <div style="flex:1;cursor:pointer" class="bm-open" data-url="${escapeHtml(b.url)}">
+          <div style="color:var(--neon-cyan)">${escapeHtml(b.name)}</div>
+          <div style="color:var(--text-muted);font-size:10px">${escapeHtml(b.url)}</div>
+        </div>
+        <button class="bm-remove" data-id="${b.id}" style="
+          background:var(--neon-red);color:#000;border:none;padding:2px 8px;
+          border-radius:3px;cursor:pointer;font-size:10px;margin-left:8px;
+        ">✕</button>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.bm-open').forEach(el => {
+      el.addEventListener('click', () => navigateTo(el.dataset.url));
+    });
+
+    container.querySelectorAll('.bm-remove').forEach(el => {
+      el.addEventListener('click', async () => {
+        await window.shadownet.bookmarks.remove(el.dataset.id);
+        renderBookmarks();
+      });
+    });
+  } catch {
+    container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Erreur de chargement</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// D15 — PANNEAU SCOPE MANAGER
+// ═══════════════════════════════════════════════════════════════════════
+
+function initScopePanel() {
+  const btnAdd = document.getElementById('btn-add-scope');
+  const modeSelect = document.getElementById('scope-mode');
+
+  if (btnAdd) {
+    btnAdd.addEventListener('click', async () => {
+      const domain = document.getElementById('scope-domain').value.trim();
+      if (!domain) return;
+
+      const result = await window.shadownet.scope.add(domain);
+      if (result.success) {
+        document.getElementById('scope-domain').value = '';
+        renderScope();
+        showToast('success', 'Scope', `${domain} ajouté au périmètre`);
+      } else {
+        showToast('danger', 'Erreur', result.error || 'Domaine invalide');
+      }
+    });
+  }
+
+  if (modeSelect) {
+    modeSelect.addEventListener('change', async () => {
+      await window.shadownet.scope.setMode(modeSelect.value);
+      showToast('info', 'Scope', `Mode ${modeSelect.value} activé`);
+    });
+  }
+
+  renderScope();
+}
+
+async function renderScope() {
+  const container = document.getElementById('scope-list');
+  if (!container) return;
+
+  try {
+    const result = await window.shadownet.scope.list();
+    const scope = result.scope || [];
+
+    if (scope.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Aucun domaine dans le scope (tout est autorisé)</div>';
+      return;
+    }
+
+    container.innerHTML = scope.map(d => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;margin-bottom:2px;font-size:11px">
+        <span style="color:var(--neon-green)">⊙ ${escapeHtml(d)}</span>
+        <button class="scope-remove" data-domain="${escapeHtml(d)}" style="
+          background:var(--neon-red);color:#000;border:none;padding:1px 6px;
+          border-radius:3px;cursor:pointer;font-size:10px;
+        ">✕</button>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.scope-remove').forEach(el => {
+      el.addEventListener('click', async () => {
+        await window.shadownet.scope.remove(el.dataset.domain);
+        renderScope();
+      });
+    });
+
+    if (result.mode) {
+      const modeSelect = document.getElementById('scope-mode');
+      if (modeSelect) modeSelect.value = result.mode;
+    }
+  } catch {
+    container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Erreur de chargement</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// D16 — PANNEAU NOTES & RAPPORT
+// ═══════════════════════════════════════════════════════════════════════
+
+function initNotesPanel() {
+  const btnSave = document.getElementById('btn-save-notes');
+  const btnFinding = document.getElementById('btn-add-finding');
+  const btnExportJSON = document.getElementById('btn-export-json');
+  const btnExportMD = document.getElementById('btn-export-md');
+  const btnExportHTML = document.getElementById('btn-export-html');
+
+  // Charger les notes existantes
+  window.shadownet.notes.get().then(result => {
+    const textarea = document.getElementById('pentest-notes');
+    if (textarea && result.text) textarea.value = result.text;
+  }).catch(() => {});
+
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const text = document.getElementById('pentest-notes').value;
+      await window.shadownet.notes.save(text);
+      showToast('success', 'Notes sauvegardées', 'Vos notes ont été enregistrées');
+    });
+  }
+
+  if (btnFinding) {
+    btnFinding.addEventListener('click', async () => {
+      const title = document.getElementById('finding-title').value.trim();
+      const severity = document.getElementById('finding-severity').value;
+      const description = document.getElementById('finding-desc').value.trim();
+      const poc = document.getElementById('finding-poc').value.trim();
+      const recommendation = document.getElementById('finding-rec').value.trim();
+
+      if (!title) {
+        showToast('warning', 'Titre requis', 'Donnez un titre au finding');
+        return;
+      }
+
+      await window.shadownet.findings.add({ title, severity, description, poc, recommendation });
+      document.getElementById('finding-title').value = '';
+      document.getElementById('finding-desc').value = '';
+      document.getElementById('finding-poc').value = '';
+      document.getElementById('finding-rec').value = '';
+      renderFindings();
+      showToast('success', 'Finding ajouté', `[${severity.toUpperCase()}] ${title}`);
+    });
+  }
+
+  // Export buttons
+  const exportHandler = async (format) => {
+    const notes = document.getElementById('pentest-notes').value;
+    const findings = await window.shadownet.findings.list();
+    const requests = await window.shadownet.proxy.getRequests();
+
+    const data = {
+      target: state.currentDomain || 'N/A',
+      scope: [],
+      date: new Date().toISOString().split('T')[0],
+      notes,
+      findings: findings || [],
+      requests: (requests || []).slice(-100)
+    };
+
+    let result;
+    switch (format) {
+      case 'json': result = await window.shadownet.export.json(data); break;
+      case 'markdown': result = await window.shadownet.export.markdown(data); break;
+      case 'html': result = await window.shadownet.export.html(data); break;
+    }
+
+    if (result && result.success) {
+      showToast('success', 'Rapport exporté', result.path);
+    }
+  };
+
+  if (btnExportJSON) btnExportJSON.addEventListener('click', () => exportHandler('json'));
+  if (btnExportMD) btnExportMD.addEventListener('click', () => exportHandler('markdown'));
+  if (btnExportHTML) btnExportHTML.addEventListener('click', () => exportHandler('html'));
+
+  renderFindings();
+}
+
+async function renderFindings() {
+  const container = document.getElementById('findings-list');
+  if (!container) return;
+
+  try {
+    const findings = await window.shadownet.findings.list();
+    if (!findings || findings.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Aucun finding enregistré</div>';
+      return;
+    }
+
+    const severityColors = {
+      critical: '#ff0040', high: '#ff6600', medium: '#ffaa00', low: '#00ccff', info: '#888'
+    };
+
+    container.innerHTML = findings.map(f => `
+      <div style="
+        padding:8px 10px;margin-bottom:6px;
+        border-left:3px solid ${severityColors[f.severity] || '#888'};
+        background:rgba(0,0,0,0.3);font-size:11px;
+      ">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:${severityColors[f.severity]};font-weight:bold">[${(f.severity || 'info').toUpperCase()}]</span>
+          <span style="color:var(--neon-cyan)">${escapeHtml(f.title)}</span>
+          <button class="finding-remove" data-id="${f.id}" style="
+            background:transparent;color:var(--neon-red);border:none;cursor:pointer;font-size:12px;
+          ">✕</button>
+        </div>
+        ${f.description ? `<div style="color:var(--text-secondary);margin-top:4px">${escapeHtml(f.description)}</div>` : ''}
+        ${f.poc ? `<div style="color:var(--neon-yellow);margin-top:4px;font-family:monospace;font-size:10px">PoC: ${escapeHtml(f.poc)}</div>` : ''}
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.finding-remove').forEach(el => {
+      el.addEventListener('click', async () => {
+        await window.shadownet.findings.remove(el.dataset.id);
+        renderFindings();
+      });
+    });
+  } catch {
+    container.innerHTML = '<div style="color:var(--text-muted);padding:10px">Erreur de chargement</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// PERSISTANCE DE LA CONFIG
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadPersistedConfig() {
+  try {
+    const config = await window.shadownet.config.getAll();
+    if (!config) return;
+
+    // Restaurer les états
+    if (config.proxyEnabled) {
+      document.getElementById('btn-toggle-proxy').click();
+    }
+    if (!config.spoofEnabled) {
+      state.spoofEnabled = false;
+      document.getElementById('btn-toggle-spoof').classList.remove('active');
+    }
+  } catch { /* Config pas encore disponible */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // UTILITAIRES
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1666,3 +2257,6 @@ window.createNewTab = createNewTab;
 window.toggleRightPanel = toggleRightPanel;
 window.getActiveWebview = getActiveWebview;
 window.refreshScriptsList = refreshScriptsList;
+window.loadRequestInEditor = loadRequestInEditor;
+window.renderHistory = renderHistory;
+window.renderBookmarks = renderBookmarks;

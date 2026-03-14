@@ -34,9 +34,12 @@ class InterceptionProxy {
     this._requestCounter = 0;
     this._maxHistorySize = 5000; // Limite pour éviter les fuites mémoire
     this._filters = { urls: ['<all_urls>'] };
+    this._wsHistory = [];       // D13 — Historique WebSocket
+    this._idorPatterns = [];    // A3 — Patterns IDOR détectés
 
     // Initialiser les listeners (toujours actifs pour le logging)
     this._setupListeners();
+    this._setupWebSocketListeners();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -438,6 +441,116 @@ class InterceptionProxy {
     if (this._requestHistory.length > this._maxHistorySize) {
       this._requestHistory = this._requestHistory.slice(-Math.floor(this._maxHistorySize * 0.8));
     }
+    // A3 — Analyser automatiquement pour IDOR
+    this._analyzeForIDOR(entry);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // D13 — INTERCEPTION WEBSOCKET
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Détecte les connexions WebSocket via les headers Upgrade
+   */
+  _setupWebSocketListeners() {
+    if (!this._session) return;
+
+    this._session.webRequest.onBeforeSendHeaders(
+      { urls: ['<all_urls>'] },
+      (details, callback) => {
+        const headers = details.requestHeaders || {};
+        const upgradeHeader = Object.keys(headers).find(h => h.toLowerCase() === 'upgrade');
+
+        if (upgradeHeader && headers[upgradeHeader].toLowerCase() === 'websocket') {
+          this._wsHistory.push({
+            id: `ws-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            url: details.url,
+            timestamp: Date.now(),
+            type: 'connection',
+            headers: headers
+          });
+
+          // Limiter la taille de l'historique WS
+          if (this._wsHistory.length > 1000) {
+            this._wsHistory = this._wsHistory.slice(-800);
+          }
+        }
+
+        callback({ requestHeaders: headers });
+      }
+    );
+  }
+
+  /**
+   * Récupérer l'historique des connexions WebSocket
+   */
+  getWSHistory() {
+    return [...this._wsHistory];
+  }
+
+  /**
+   * Vider l'historique WebSocket
+   */
+  clearWSHistory() {
+    this._wsHistory = [];
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // A3 — DÉTECTION IDOR
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Analyse une requête pour détecter des patterns IDOR potentiels
+   * Cherche des identifiants numériques, UUIDs dans les URLs
+   */
+  _analyzeForIDOR(entry) {
+    if (!entry.url) return;
+
+    const idorRegexes = [
+      { pattern: /\/(\d{1,10})(\/|$|\?)/, name: 'ID numérique dans le chemin' },
+      { pattern: /[?&](id|user_id|account_id|uid|userId|accountId|profile_id|order_id|item_id)=(\d+)/i, name: 'ID numérique en paramètre' },
+      { pattern: /[?&](id|user_id|account_id)=([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i, name: 'UUID en paramètre' },
+      { pattern: /\/users\/(\d+)/, name: 'Endpoint utilisateur avec ID' },
+      { pattern: /\/accounts?\/(\d+)/, name: 'Endpoint compte avec ID' },
+      { pattern: /\/orders?\/(\d+)/, name: 'Endpoint commande avec ID' },
+      { pattern: /\/api\/v\d+\/\w+\/(\d+)/, name: 'API REST avec ID' }
+    ];
+
+    for (const { pattern, name } of idorRegexes) {
+      const match = entry.url.match(pattern);
+      if (match) {
+        const existing = this._idorPatterns.find(p =>
+          p.name === name && p.url === entry.url
+        );
+        if (!existing) {
+          this._idorPatterns.push({
+            name,
+            url: entry.url,
+            method: entry.method,
+            value: match[1] || match[2],
+            timestamp: Date.now()
+          });
+          // Limiter
+          if (this._idorPatterns.length > 500) {
+            this._idorPatterns = this._idorPatterns.slice(-400);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Récupérer les candidats IDOR détectés
+   */
+  getIDORCandidates() {
+    return [...this._idorPatterns];
+  }
+
+  /**
+   * Vider les patterns IDOR
+   */
+  clearIDORCandidates() {
+    this._idorPatterns = [];
   }
 }
 
