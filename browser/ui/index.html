@@ -55,15 +55,25 @@
       <button class="nav-btn" id="btn-back" title="Retour">◄</button>
       <button class="nav-btn" id="btn-forward" title="Avancer">►</button>
       <button class="nav-btn" id="btn-reload" title="Recharger (Shift+clic = vider cache)">⟳</button>
+      <button class="nav-btn" id="btn-home" title="Accueil">⌂</button>
     </div>
 
     <!-- Barre d'URL avec affichage WHOIS/IP intégré -->
     <div class="url-container">
       <span id="url-protocol" class="url-protocol">https://</span>
-      <input type="text" id="url-bar" placeholder="Entrer une URL ou rechercher..." spellcheck="false" autocomplete="off">
+      <input type="text" id="url-bar" placeholder="Rechercher ou entrer une URL... (Ctrl+L)" spellcheck="false" autocomplete="off">
+      <select id="search-engine" class="search-engine-select" title="Moteur de recherche">
+        <option value="duckduckgo">DuckDuckGo</option>
+        <option value="google">Google</option>
+        <option value="brave">Brave</option>
+        <option value="startpage">Startpage</option>
+        <option value="shodan">Shodan</option>
+      </select>
       <div id="url-info" class="url-info">
         <span id="url-ip" title="Adresse IP">—</span>
       </div>
+      <!-- Dropdown d'autocomplétion -->
+      <div id="url-suggestions" class="url-suggestions hidden"></div>
     </div>
 
     <!-- Toggles rapides d'outils -->
@@ -120,10 +130,61 @@
           <div class="welcome-logo">◈</div>
           <h1>SHADOWNET</h1>
           <p class="welcome-subtitle">Navigateur de Cybersécurité Avancé</p>
+
+          <!-- Barre de recherche centrale -->
+          <div class="welcome-search-container">
+            <input type="text" id="welcome-search" class="welcome-search-input" placeholder="Rechercher sur le web ou entrer une URL..." spellcheck="false">
+            <button id="welcome-search-btn" class="welcome-search-btn">⏎</button>
+          </div>
+
+          <!-- Accès rapides pentest -->
+          <div class="welcome-quick-links">
+            <div class="quick-link" data-url="https://www.shodan.io" title="Shodan">
+              <span class="quick-link-icon">⬡</span>
+              <span>Shodan</span>
+            </div>
+            <div class="quick-link" data-url="https://crt.sh" title="Certificate Search">
+              <span class="quick-link-icon">⊡</span>
+              <span>crt.sh</span>
+            </div>
+            <div class="quick-link" data-url="https://www.exploit-db.com" title="Exploit Database">
+              <span class="quick-link-icon">☠</span>
+              <span>ExploitDB</span>
+            </div>
+            <div class="quick-link" data-url="https://haveibeenpwned.com" title="Have I Been Pwned">
+              <span class="quick-link-icon">⚠</span>
+              <span>HIBP</span>
+            </div>
+            <div class="quick-link" data-url="https://www.virustotal.com" title="VirusTotal">
+              <span class="quick-link-icon">◎</span>
+              <span>VirusTotal</span>
+            </div>
+            <div class="quick-link" data-url="https://dnsdumpster.com" title="DNS Dumpster">
+              <span class="quick-link-icon">◆</span>
+              <span>DNSDumpster</span>
+            </div>
+            <div class="quick-link" data-url="https://www.whois.com" title="WHOIS Lookup">
+              <span class="quick-link-icon">◇</span>
+              <span>WHOIS</span>
+            </div>
+            <div class="quick-link" data-url="https://hackthebox.com" title="HackTheBox">
+              <span class="quick-link-icon">⬢</span>
+              <span>HTB</span>
+            </div>
+          </div>
+
+          <!-- Sites fréquents (remplis dynamiquement) -->
+          <div id="frequent-sites" class="welcome-frequent">
+            <div class="frequent-header">SITES FRÉQUENTS</div>
+            <div id="frequent-sites-list" class="frequent-list"></div>
+          </div>
+
           <div class="welcome-shortcuts">
+            <div class="shortcut-item"><kbd>Ctrl+L</kbd> Barre d'URL</div>
+            <div class="shortcut-item"><kbd>Ctrl+T</kbd> Nouvel onglet</div>
             <div class="shortcut-item"><kbd>Ctrl+Shift+P</kbd> Command Palette</div>
-            <div class="shortcut-item"><kbd>Ctrl+Shift+I</kbd> Toggle Proxy</div>
-            <div class="shortcut-item"><kbd>Ctrl+Shift+B</kbd> Burn Session</div>
+            <div class="shortcut-item"><kbd>Ctrl+Enter</kbd> Ajouter .com</div>
+            <div class="shortcut-item"><kbd>Alt+←/→</kbd> Navigation</div>
             <div class="shortcut-item"><kbd>F12</kbd> Split Screen</div>
           </div>
           <div class="welcome-stats">

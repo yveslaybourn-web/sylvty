@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSystemMonitor();
   initEventListeners();
   initKeyboardShortcuts();
+  initWelcomeScreen();
 
   // Initialiser le diff viewer (chargé depuis composant)
   if (typeof initDiffViewer === 'function') initDiffViewer();
@@ -78,30 +79,120 @@ document.addEventListener('DOMContentLoaded', () => {
 // NAVIGATION
 // ═══════════════════════════════════════════════════════════════════════
 
+// Moteurs de recherche
+const SEARCH_ENGINES = {
+  duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=%s', suggest: 'https://ac.duckduckgo.com/ac/?q=%s&type=list' },
+  google: { name: 'Google', url: 'https://www.google.com/search?q=%s', suggest: null },
+  brave: { name: 'Brave', url: 'https://search.brave.com/search?q=%s', suggest: null },
+  startpage: { name: 'Startpage', url: 'https://www.startpage.com/do/search?q=%s', suggest: null },
+  shodan: { name: 'Shodan', url: 'https://www.shodan.io/search?query=%s', suggest: null }
+};
+
+function getSearchUrl(query) {
+  const engineId = document.getElementById('search-engine')?.value || 'duckduckgo';
+  const engine = SEARCH_ENGINES[engineId] || SEARCH_ENGINES.duckduckgo;
+  return engine.url.replace('%s', encodeURIComponent(query));
+}
+
+function buildUrlFromInput(input) {
+  let url = input.trim();
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.includes('.') && !url.includes(' ') && !url.includes('?')) {
+    return 'https://' + url;
+  }
+  return getSearchUrl(url);
+}
+
 function initNavigation() {
   const urlBar = document.getElementById('url-bar');
   const btnBack = document.getElementById('btn-back');
   const btnForward = document.getElementById('btn-forward');
   const btnReload = document.getElementById('btn-reload');
+  const btnHome = document.getElementById('btn-home');
+  const suggestions = document.getElementById('url-suggestions');
+
+  let selectedSuggestion = -1;
+  let currentSuggestions = [];
 
   // Navigation par URL
   urlBar.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      let url = urlBar.value.trim();
-      if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
-        // Si ce n'est pas une URL, traiter comme recherche ou ajouter https://
-        if (url.includes('.') && !url.includes(' ')) {
-          url = 'https://' + url;
-        } else {
-          url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
-        }
+    // Navigation dans les suggestions
+    if (!suggestions.classList.contains('hidden') && currentSuggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedSuggestion = Math.min(selectedSuggestion + 1, currentSuggestions.length - 1);
+        renderSuggestionHighlight();
+        return;
       }
-      navigateTo(url);
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedSuggestion = Math.max(selectedSuggestion - 1, -1);
+        renderSuggestionHighlight();
+        return;
+      }
+      if (e.key === 'Tab' && selectedSuggestion >= 0) {
+        e.preventDefault();
+        urlBar.value = currentSuggestions[selectedSuggestion].url;
+        hideSuggestions();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter') {
+      if (selectedSuggestion >= 0 && !suggestions.classList.contains('hidden')) {
+        e.preventDefault();
+        const selected = currentSuggestions[selectedSuggestion];
+        hideSuggestions();
+        navigateTo(selected.url.startsWith('http') ? selected.url : 'https://' + selected.url);
+        return;
+      }
+      // Ctrl+Enter → ajouter .com
+      if (e.ctrlKey) {
+        e.preventDefault();
+        let val = urlBar.value.trim();
+        if (!val.includes('.')) val += '.com';
+        if (!val.startsWith('http')) val = 'https://' + val;
+        hideSuggestions();
+        navigateTo(val);
+        return;
+      }
+      const url = buildUrlFromInput(urlBar.value);
+      hideSuggestions();
+      if (url) navigateTo(url);
+    }
+
+    if (e.key === 'Escape') {
+      hideSuggestions();
     }
   });
 
+  // Autocomplétion en temps réel
+  urlBar.addEventListener('input', () => {
+    const query = urlBar.value.trim();
+    if (query.length < 2) { hideSuggestions(); return; }
+    selectedSuggestion = -1;
+    showSuggestions(query);
+  });
+
   // Sélectionner tout le texte au focus
-  urlBar.addEventListener('focus', () => urlBar.select());
+  urlBar.addEventListener('focus', () => {
+    urlBar.select();
+    const query = urlBar.value.trim();
+    if (query.length >= 2) showSuggestions(query);
+  });
+
+  // Cacher les suggestions quand on clique ailleurs
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.url-container')) hideSuggestions();
+  });
+
+  // Bouton Home → retour à l'écran d'accueil
+  if (btnHome) {
+    btnHome.addEventListener('click', () => {
+      showWelcomeScreen();
+    });
+  }
 
   // Boutons de navigation
   btnBack.addEventListener('click', () => {
@@ -118,7 +209,6 @@ function initNavigation() {
     const webview = getActiveWebview();
     if (webview) {
       if (e.shiftKey) {
-        // Shift+click = rechargement sans cache
         webview.reloadIgnoringCache();
         showToast('info', 'Cache vidé', 'Page rechargée sans cache');
       } else {
@@ -126,6 +216,111 @@ function initNavigation() {
       }
     }
   });
+
+  // Sauvegarder le moteur de recherche sélectionné
+  const searchEngineSelect = document.getElementById('search-engine');
+  if (searchEngineSelect) {
+    // Charger le moteur sauvegardé
+    window.shadownet.config.get('searchEngine').then(engine => {
+      if (engine) searchEngineSelect.value = engine;
+    }).catch(() => {});
+
+    searchEngineSelect.addEventListener('change', () => {
+      window.shadownet.config.set('searchEngine', searchEngineSelect.value).catch(() => {});
+    });
+  }
+
+  // Suggestions helpers
+  async function showSuggestions(query) {
+    currentSuggestions = [];
+    const lowerQuery = query.toLowerCase();
+
+    // 1. Bookmarks correspondants
+    try {
+      const bookmarks = await window.shadownet.bookmarks.list();
+      if (bookmarks && bookmarks.length) {
+        bookmarks.forEach(b => {
+          if (b.url.toLowerCase().includes(lowerQuery) || (b.name && b.name.toLowerCase().includes(lowerQuery))) {
+            currentSuggestions.push({ type: 'bookmark', label: b.name || extractDomain(b.url), url: b.url, icon: '★' });
+          }
+        });
+      }
+    } catch {}
+
+    // 2. Historique correspondant
+    try {
+      const history = await window.shadownet.history.get();
+      if (history && history.length) {
+        const seen = new Set(currentSuggestions.map(s => s.url));
+        history.slice().reverse().forEach(h => {
+          if (!seen.has(h.url) && (h.url.toLowerCase().includes(lowerQuery) || (h.title && h.title.toLowerCase().includes(lowerQuery)))) {
+            currentSuggestions.push({ type: 'history', label: h.title || extractDomain(h.url), url: h.url, icon: '↻' });
+            seen.add(h.url);
+          }
+        });
+      }
+    } catch {}
+
+    // 3. Suggestion de recherche
+    currentSuggestions.push({ type: 'search', label: `Rechercher "${query}"`, url: getSearchUrl(query), icon: '⌕' });
+
+    // Limiter à 8
+    currentSuggestions = currentSuggestions.slice(0, 8);
+
+    if (currentSuggestions.length === 0) { hideSuggestions(); return; }
+
+    suggestions.innerHTML = currentSuggestions.map((s, i) => `
+      <div class="suggestion-item${i === selectedSuggestion ? ' selected' : ''}" data-index="${i}">
+        <span class="suggestion-icon">${s.icon}</span>
+        <span class="suggestion-label">${escapeHtml(s.label)}</span>
+        <span class="suggestion-url">${escapeHtml(s.url.length > 60 ? s.url.substring(0, 60) + '…' : s.url)}</span>
+      </div>
+    `).join('');
+
+    suggestions.classList.remove('hidden');
+
+    suggestions.querySelectorAll('.suggestion-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = parseInt(el.dataset.index);
+        const selected = currentSuggestions[idx];
+        hideSuggestions();
+        navigateTo(selected.url.startsWith('http') ? selected.url : 'https://' + selected.url);
+      });
+      el.addEventListener('mouseenter', () => {
+        selectedSuggestion = parseInt(el.dataset.index);
+        renderSuggestionHighlight();
+      });
+    });
+  }
+
+  function renderSuggestionHighlight() {
+    suggestions.querySelectorAll('.suggestion-item').forEach((el, i) => {
+      el.classList.toggle('selected', i === selectedSuggestion);
+    });
+  }
+
+  function hideSuggestions() {
+    suggestions.classList.add('hidden');
+    selectedSuggestion = -1;
+    currentSuggestions = [];
+  }
+}
+
+/**
+ * Afficher l'écran d'accueil (new tab page)
+ */
+function showWelcomeScreen() {
+  const welcome = document.getElementById('welcome-screen');
+  if (welcome) {
+    welcome.style.display = 'flex';
+    populateFrequentSites();
+  }
+  // Vider la barre d'URL
+  const urlBar = document.getElementById('url-bar');
+  if (urlBar) urlBar.value = '';
+  const proto = document.getElementById('url-protocol');
+  if (proto) proto.textContent = '';
 }
 
 /**
@@ -1431,10 +1626,43 @@ function initKeyboardShortcuts() {
       if (state.activeTabId) closeTab(state.activeTabId);
     }
 
-    // Ctrl+L — Focus sur la barre d'URL
-    if (e.ctrlKey && e.key === 'l') {
+    // Ctrl+L ou F6 — Focus sur la barre d'URL
+    if ((e.ctrlKey && e.key === 'l') || e.key === 'F6') {
       e.preventDefault();
       document.getElementById('url-bar').focus();
+    }
+
+    // Alt+← — Retour
+    if (e.altKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const webview = getActiveWebview();
+      if (webview && webview.canGoBack()) webview.goBack();
+    }
+
+    // Alt+→ — Avancer
+    if (e.altKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      const webview = getActiveWebview();
+      if (webview && webview.canGoForward()) webview.goForward();
+    }
+
+    // Alt+Home — Page d'accueil
+    if (e.altKey && e.key === 'Home') {
+      e.preventDefault();
+      showWelcomeScreen();
+    }
+
+    // F5 — Recharger
+    if (e.key === 'F5') {
+      e.preventDefault();
+      const webview = getActiveWebview();
+      if (webview) {
+        if (e.ctrlKey) {
+          webview.reloadIgnoringCache();
+        } else {
+          webview.reload();
+        }
+      }
     }
 
     // Escape — Fermer les overlays
@@ -1445,6 +1673,96 @@ function initKeyboardShortcuts() {
       }
     }
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ÉCRAN D'ACCUEIL — RECHERCHE ET SITES FRÉQUENTS
+// ═══════════════════════════════════════════════════════════════════════
+
+function initWelcomeScreen() {
+  // Barre de recherche de l'écran d'accueil
+  const welcomeSearch = document.getElementById('welcome-search');
+  const welcomeBtn = document.getElementById('welcome-search-btn');
+
+  if (welcomeSearch) {
+    welcomeSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const url = buildUrlFromInput(welcomeSearch.value);
+        if (url) navigateTo(url);
+      }
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        let val = welcomeSearch.value.trim();
+        if (!val.includes('.')) val += '.com';
+        if (!val.startsWith('http')) val = 'https://' + val;
+        navigateTo(val);
+      }
+    });
+  }
+
+  if (welcomeBtn) {
+    welcomeBtn.addEventListener('click', () => {
+      const url = buildUrlFromInput(welcomeSearch.value);
+      if (url) navigateTo(url);
+    });
+  }
+
+  // Quick links
+  document.querySelectorAll('.quick-link[data-url]').forEach(el => {
+    el.addEventListener('click', () => {
+      navigateTo(el.dataset.url);
+    });
+  });
+
+  // Charger les sites fréquents
+  populateFrequentSites();
+}
+
+async function populateFrequentSites() {
+  const container = document.getElementById('frequent-sites-list');
+  if (!container) return;
+
+  try {
+    const history = await window.shadownet.history.get();
+    if (!history || history.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);font-size:11px">Naviguez pour voir vos sites fréquents ici</div>';
+      return;
+    }
+
+    // Compter les visites par domaine
+    const domainCounts = {};
+    const domainUrls = {};
+    history.forEach(h => {
+      try {
+        const domain = new URL(h.url).hostname;
+        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+        if (!domainUrls[domain]) domainUrls[domain] = h.url;
+      } catch {}
+    });
+
+    // Top 8 domaines
+    const topDomains = Object.entries(domainCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+
+    if (topDomains.length === 0) {
+      container.innerHTML = '<div style="color:var(--text-muted);font-size:11px">Pas encore de sites fréquents</div>';
+      return;
+    }
+
+    container.innerHTML = topDomains.map(([domain, count]) => `
+      <div class="frequent-item" data-url="${escapeHtml(domainUrls[domain])}" title="${domain} (${count} visites)">
+        <div class="frequent-icon">${domain.charAt(0).toUpperCase()}</div>
+        <div class="frequent-name">${domain.replace('www.', '')}</div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.frequent-item').forEach(el => {
+      el.addEventListener('click', () => navigateTo(el.dataset.url));
+    });
+  } catch {
+    container.innerHTML = '';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
