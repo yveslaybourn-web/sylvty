@@ -85,7 +85,9 @@ const ALLOWED_IPC_CHANNELS = [
   // Scope
   'scope:add', 'scope:remove', 'scope:list', 'scope:check', 'scope:set-mode',
   // Notes & findings
-  'notes:save', 'notes:get', 'findings:add', 'findings:remove', 'findings:list'
+  'notes:save', 'notes:get', 'findings:add', 'findings:remove', 'findings:list',
+  // Fenêtre
+  'win:minimize', 'win:maximize', 'win:close'
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -549,6 +551,24 @@ function registerIPCHandlers() {
     }
 
     return { baseUrl, found };
+  });
+
+  // ─── CONTRÔLES FENÊTRE ────────────────────────────────────────────
+
+  ipcMain.handle('win:minimize', () => {
+    mainWindow.minimize();
+  });
+
+  ipcMain.handle('win:maximize', () => {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  });
+
+  ipcMain.handle('win:close', () => {
+    mainWindow.close();
   });
 
   // ─── INFORMATIONS SYSTÈME ──────────────────────────────────────────

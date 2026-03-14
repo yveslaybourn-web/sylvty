@@ -94,6 +94,13 @@ contextBridge.exposeInMainWorld('shadownet', {
     suggestVectors: (data) => ipcRenderer.invoke('ai:suggest-vectors', data)
   },
 
+  // ─── FENÊTRE ───────────────────────────────────────────────────────
+  window: {
+    minimize: () => ipcRenderer.invoke('win:minimize'),
+    maximize: () => ipcRenderer.invoke('win:maximize'),
+    close: () => ipcRenderer.invoke('win:close')
+  },
+
   // ─── SYSTÈME ───────────────────────────────────────────────────────
   system: {
     getResources: () => ipcRenderer.invoke('sys:get-resources'),

@@ -1565,6 +1565,29 @@ document.getElementById('btn-burn').addEventListener('click', async () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 function initEventListeners() {
+  // ─── Contrôles fenêtre (minimize, maximize, close) ──────────────
+  const btnMinimize = document.getElementById('btn-minimize');
+  const btnMaximize = document.getElementById('btn-maximize');
+  const btnClose = document.getElementById('btn-close');
+
+  if (btnMinimize) {
+    btnMinimize.addEventListener('click', () => {
+      window.shadownet.window.minimize();
+    });
+  }
+
+  if (btnMaximize) {
+    btnMaximize.addEventListener('click', () => {
+      window.shadownet.window.maximize();
+    });
+  }
+
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      window.shadownet.window.close();
+    });
+  }
+
   // Toggle Command Palette (raccourci Ctrl+Shift+P)
   window.shadownet.on('toggle-command-palette', () => {
     toggleCommandPalette();
