@@ -328,6 +328,13 @@ function showWelcomeScreen() {
   if (urlBar) urlBar.value = '';
   const proto = document.getElementById('url-protocol');
   if (proto) proto.textContent = '';
+  const ipSpan = document.getElementById('url-ip');
+  if (ipSpan) { ipSpan.textContent = '—'; ipSpan.style.color = 'var(--text-muted)'; }
+  // Marquer l'onglet actif comme blank
+  if (state.activeTabId) {
+    const tab = state.tabs.find(t => t.id === state.activeTabId);
+    if (tab) tab.url = 'about:blank';
+  }
 }
 
 /**
@@ -339,6 +346,10 @@ async function navigateTo(url) {
 
   state.currentUrl = url;
   state.currentDomain = extractDomain(url);
+
+  // Cacher le welcome screen
+  const welcome = document.getElementById('welcome-screen');
+  if (welcome) welcome.style.display = 'none';
 
   // Mettre à jour la barre d'URL
   updateUrlBar(url);
@@ -440,9 +451,18 @@ async function createNewTab(url = 'about:blank') {
   // Mettre à jour l'arbre d'onglets
   renderTabTree();
 
-  // Masquer l'écran d'accueil
+  // Si about:blank → afficher le welcome screen, sinon le cacher
   const welcome = document.getElementById('welcome-screen');
-  if (welcome) welcome.style.display = 'none';
+  if (welcome) {
+    if (!url || url === 'about:blank') {
+      welcome.style.display = 'flex';
+      populateFrequentSites();
+      // Focus sur la barre d'URL pour taper directement
+      setTimeout(() => document.getElementById('url-bar').focus(), 100);
+    } else {
+      welcome.style.display = 'none';
+    }
+  }
 
   return tab;
 }
@@ -515,10 +535,20 @@ function switchToTab(tabId) {
   state.activeTabId = tabId;
   window.shadownet.tabs.switch(tabId);
 
-  // Mettre à jour l'URL bar
+  // Mettre à jour l'URL bar et le welcome screen
   const tab = state.tabs.find(t => t.id === tabId);
+  const welcome = document.getElementById('welcome-screen');
   if (tab && tab.url) {
     updateUrlBar(tab.url);
+    // Afficher le welcome screen pour les onglets vides
+    if (welcome) {
+      if (!tab.url || tab.url === 'about:blank') {
+        welcome.style.display = 'flex';
+        populateFrequentSites();
+      } else {
+        welcome.style.display = 'none';
+      }
+    }
   }
 
   renderTabTree();
