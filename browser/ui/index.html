@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;">
+  <title>ShadowNet — Cybersecurity Browser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- BARRE DE TITRE PERSONNALISÉE (Cadre Electron custom)          -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="titlebar">
+    <div class="titlebar-left">
+      <span class="logo">◈ SHADOWNET</span>
+      <span class="version">v1.0</span>
+    </div>
+    <div class="titlebar-center">
+      <!-- Indicateurs de statut en temps réel -->
+      <div class="status-indicators">
+        <span id="proxy-indicator" class="indicator off" title="Proxy d'interception">
+          ⬡ PROXY
+        </span>
+        <span id="tor-indicator" class="indicator off" title="Routage Tor">
+          ◎ TOR
+        </span>
+        <span id="webrtc-indicator" class="indicator on" title="WebRTC bloqué">
+          ⊘ WebRTC
+        </span>
+        <span id="spoof-indicator" class="indicator on" title="Fingerprint spoofé">
+          ◬ SPOOF
+        </span>
+      </div>
+    </div>
+    <div class="titlebar-right">
+      <button class="titlebar-btn" id="btn-minimize">─</button>
+      <button class="titlebar-btn" id="btn-maximize">□</button>
+      <button class="titlebar-btn close" id="btn-close">✕</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- BARRE DE NAVIGATION PRINCIPALE                                -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="navbar">
+    <div class="nav-controls">
+      <button class="nav-btn" id="btn-back" title="Retour">◄</button>
+      <button class="nav-btn" id="btn-forward" title="Avancer">►</button>
+      <button class="nav-btn" id="btn-reload" title="Recharger (Shift+clic = vider cache)">⟳</button>
+    </div>
+
+    <!-- Barre d'URL avec affichage WHOIS/IP intégré -->
+    <div class="url-container">
+      <span id="url-protocol" class="url-protocol">https://</span>
+      <input type="text" id="url-bar" placeholder="Entrer une URL ou rechercher..." spellcheck="false" autocomplete="off">
+      <div id="url-info" class="url-info">
+        <span id="url-ip" title="Adresse IP">—</span>
+      </div>
+    </div>
+
+    <!-- Toggles rapides d'outils -->
+    <div class="nav-tools">
+      <button class="tool-btn" id="btn-toggle-proxy" title="Toggle Proxy (Ctrl+Shift+I)">⬡</button>
+      <button class="tool-btn active" id="btn-toggle-spoof" title="Toggle Spoofing">◬</button>
+      <button class="tool-btn" id="btn-toggle-tor" title="Toggle Tor">◎</button>
+      <button class="tool-btn danger" id="btn-burn" title="Burn Session (Ctrl+Shift+B)">🔥</button>
+      <button class="tool-btn" id="btn-command-palette" title="Command Palette (Ctrl+Shift+P)">⌘</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- LAYOUT PRINCIPAL — GRILLE À 3 COLONNES                       -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="main-container">
+
+    <!-- ─── COLONNE GAUCHE : ONGLETS ARBORESCENTS ──────────────────── -->
+    <div id="sidebar-left" class="sidebar">
+      <div class="sidebar-header">
+        <span>ONGLETS</span>
+        <button class="sidebar-btn" id="btn-new-tab" title="Nouvel onglet">+</button>
+      </div>
+      <div id="tab-tree" class="tab-tree">
+        <!-- Les onglets sont générés dynamiquement par tabs-tree.js -->
+        <div class="tab-empty-state">
+          <p>Aucun onglet ouvert</p>
+          <p class="hint">Cliquez + pour commencer</p>
+        </div>
+      </div>
+
+      <!-- Graphes de ressources système en bas du sidebar -->
+      <div id="system-monitor" class="system-monitor">
+        <div class="monitor-header">SYSTÈME</div>
+        <div class="monitor-item">
+          <span>CPU</span>
+          <div class="progress-bar"><div id="cpu-bar" class="progress-fill" style="width: 0%"></div></div>
+          <span id="cpu-value">0%</span>
+        </div>
+        <div class="monitor-item">
+          <span>MEM</span>
+          <div class="progress-bar"><div id="mem-bar" class="progress-fill" style="width: 0%"></div></div>
+          <span id="mem-value">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── ZONE CENTRALE : CONTENU WEB ────────────────────────────── -->
+    <div id="content-area">
+      <!-- La webview est créée dynamiquement par renderer.js -->
+      <div id="webview-container">
+        <div id="welcome-screen" class="welcome-screen">
+          <div class="welcome-logo">◈</div>
+          <h1>SHADOWNET</h1>
+          <p class="welcome-subtitle">Navigateur de Cybersécurité Avancé</p>
+          <div class="welcome-shortcuts">
+            <div class="shortcut-item"><kbd>Ctrl+Shift+P</kbd> Command Palette</div>
+            <div class="shortcut-item"><kbd>Ctrl+Shift+I</kbd> Toggle Proxy</div>
+            <div class="shortcut-item"><kbd>Ctrl+Shift+B</kbd> Burn Session</div>
+            <div class="shortcut-item"><kbd>F12</kbd> Split Screen</div>
+          </div>
+          <div class="welcome-stats">
+            <div class="stat-item">
+              <span class="stat-value" id="stat-requests">0</span>
+              <span class="stat-label">Requêtes</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value" id="stat-alerts">0</span>
+              <span class="stat-label">Alertes</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value" id="stat-fingerprint">Aléatoire</span>
+              <span class="stat-label">Profil</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panneau split-screen pour DOM/Network (caché par défaut) -->
+      <div id="split-panel" class="split-panel hidden">
+        <div class="split-tabs">
+          <button class="split-tab active" data-panel="network">RÉSEAU</button>
+          <button class="split-tab" data-panel="dom">DOM</button>
+          <button class="split-tab" data-panel="headers">HEADERS</button>
+          <button class="split-tab" data-panel="response">RÉPONSE</button>
+        </div>
+        <div id="split-content" class="split-content">
+          <!-- Contenu du panneau split, géré par renderer.js -->
+          <div class="network-table-container">
+            <table id="network-table" class="network-table">
+              <thead>
+                <tr>
+                  <th>Méthode</th>
+                  <th>URL</th>
+                  <th>Status</th>
+                  <th>Type</th>
+                  <th>Flags</th>
+                </tr>
+              </thead>
+              <tbody id="network-tbody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── COLONNE DROITE : PANNEAU D'OUTILS ──────────────────────── -->
+    <div id="sidebar-right" class="sidebar right-sidebar hidden">
+      <div class="sidebar-header">
+        <span id="right-panel-title">OUTILS</span>
+        <button class="sidebar-btn" id="btn-close-right">✕</button>
+      </div>
+
+      <!-- Panneau de Reconnaissance OSINT -->
+      <div id="panel-recon" class="tool-panel hidden">
+        <h3 class="panel-title">◈ RECONNAISSANCE</h3>
+
+        <!-- Détection de technologies -->
+        <div class="panel-section">
+          <h4>Stack Technologique</h4>
+          <div id="tech-stack" class="tech-stack">
+            <span class="placeholder">Naviguez vers un site pour détecter...</span>
+          </div>
+        </div>
+
+        <!-- WHOIS / DNS -->
+        <div class="panel-section">
+          <h4>DNS / WHOIS</h4>
+          <button class="action-btn" id="btn-whois">Lancer WHOIS</button>
+          <div id="whois-results" class="results-container"></div>
+        </div>
+
+        <!-- Sous-domaines -->
+        <div class="panel-section">
+          <h4>Sous-domaines (crt.sh)</h4>
+          <button class="action-btn" id="btn-subdomains">Énumérer</button>
+          <div id="subdomain-results" class="results-container"></div>
+        </div>
+
+        <!-- Scanner de répertoires -->
+        <div class="panel-section">
+          <h4>Scanner de Répertoires</h4>
+          <button class="action-btn" id="btn-dirscan">Lancer DirScan</button>
+          <div id="dirscan-results" class="results-container"></div>
+        </div>
+      </div>
+
+      <!-- Panneau Crypto / Encodage -->
+      <div id="panel-crypto" class="tool-panel hidden">
+        <h3 class="panel-title">◈ CRYPTO TOOLKIT</h3>
+
+        <div class="panel-section">
+          <h4>Encodeur / Décodeur</h4>
+          <div class="crypto-controls">
+            <select id="crypto-encoding" class="cyber-select">
+              <option value="base64">Base64</option>
+              <option value="url">URL Encode</option>
+              <option value="hex">Hexadécimal</option>
+              <option value="html">HTML Entities</option>
+            </select>
+            <div class="crypto-buttons">
+              <button class="action-btn" id="btn-encode">Encoder ▶</button>
+              <button class="action-btn" id="btn-decode">◀ Décoder</button>
+            </div>
+          </div>
+          <textarea id="crypto-input" class="cyber-textarea" placeholder="Texte à encoder/décoder..." rows="4"></textarea>
+          <textarea id="crypto-output" class="cyber-textarea output" placeholder="Résultat..." rows="4" readonly></textarea>
+        </div>
+
+        <div class="panel-section">
+          <h4>Inspecteur JWT</h4>
+          <textarea id="jwt-input" class="cyber-textarea" placeholder="Coller un JWT ici..." rows="3"></textarea>
+          <button class="action-btn" id="btn-jwt-decode">Inspecter JWT</button>
+          <div id="jwt-results" class="results-container"></div>
+        </div>
+      </div>
+
+      <!-- Panneau de Vulnérabilités -->
+      <div id="panel-vuln" class="tool-panel hidden">
+        <h3 class="panel-title">◈ VULNÉRABILITÉS</h3>
+
+        <div class="panel-section">
+          <h4>Headers de Sécurité</h4>
+          <button class="action-btn" id="btn-scan-headers">Scanner Headers</button>
+          <div id="header-results" class="results-container"></div>
+        </div>
+
+        <div class="panel-section">
+          <h4>Fichiers Sensibles Exposés</h4>
+          <button class="action-btn" id="btn-check-files">Vérifier Fichiers</button>
+          <div id="files-results" class="results-container"></div>
+        </div>
+
+        <div class="panel-section">
+          <h4>Analyse DOM (XSS Sinks)</h4>
+          <button class="action-btn" id="btn-dom-sinks">Mapper DOM Sinks</button>
+          <div id="dom-results" class="results-container"></div>
+        </div>
+      </div>
+
+      <!-- Panneau Payload Injector -->
+      <div id="panel-payloads" class="tool-panel hidden">
+        <h3 class="panel-title">◈ PAYLOADS</h3>
+        <div id="payload-categories" class="payload-categories">
+          <!-- Généré par payload-injector.js -->
+        </div>
+      </div>
+
+      <!-- Panneau Assistant IA -->
+      <div id="panel-ai" class="tool-panel hidden">
+        <h3 class="panel-title">◈ ASSISTANT IA</h3>
+        <div class="panel-section">
+          <textarea id="ai-input" class="cyber-textarea" placeholder="Collez du code, des headers, ou décrivez ce que vous cherchez..." rows="6"></textarea>
+          <div class="ai-actions">
+            <button class="action-btn" id="btn-ai-analyze">Analyser</button>
+            <button class="action-btn" id="btn-ai-deobfuscate">Déobfusquer</button>
+            <button class="action-btn" id="btn-ai-vectors">Vecteurs d'attaque</button>
+          </div>
+          <div id="ai-output" class="results-container ai-output"></div>
+        </div>
+      </div>
+
+      <!-- Panneau Proxy / Intercept -->
+      <div id="panel-proxy" class="tool-panel hidden">
+        <h3 class="panel-title">◈ INTERCEPT PROXY</h3>
+        <div class="panel-section">
+          <div class="proxy-status">
+            <span>Status:</span>
+            <span id="proxy-status-text" class="status-badge off">DÉSACTIVÉ</span>
+          </div>
+          <button class="action-btn" id="btn-proxy-toggle">Activer Proxy</button>
+        </div>
+        <div class="panel-section">
+          <h4>Requêtes en Attente</h4>
+          <div id="paused-requests" class="results-container"></div>
+        </div>
+        <div class="panel-section">
+          <h4>Replay Attack</h4>
+          <div class="replay-form">
+            <select id="replay-method" class="cyber-select">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+            </select>
+            <input type="text" id="replay-url" class="cyber-input" placeholder="URL cible">
+            <textarea id="replay-headers" class="cyber-textarea" placeholder='{"Content-Type": "application/json"}' rows="3"></textarea>
+            <textarea id="replay-body" class="cyber-textarea" placeholder="Corps de la requête..." rows="3"></textarea>
+            <button class="action-btn" id="btn-replay">Envoyer Requête</button>
+          </div>
+          <div id="replay-results" class="results-container"></div>
+        </div>
+      </div>
+
+      <!-- Panneau Hex Viewer -->
+      <div id="panel-hex" class="tool-panel hidden">
+        <h3 class="panel-title">◈ HEX VIEWER</h3>
+        <div id="hex-content" class="hex-viewer-content"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- BARRE D'OUTILS INFÉRIEURE                                     -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="toolbar-bottom">
+    <div class="toolbar-tabs">
+      <button class="toolbar-tab" data-panel="recon" title="Reconnaissance OSINT">⌕ RECON</button>
+      <button class="toolbar-tab" data-panel="crypto" title="Outils Crypto">⚿ CRYPTO</button>
+      <button class="toolbar-tab" data-panel="vuln" title="Scanner de Vulnérabilités">⚠ VULN</button>
+      <button class="toolbar-tab" data-panel="payloads" title="Payloads d'injection">☠ PAYLOADS</button>
+      <button class="toolbar-tab" data-panel="ai" title="Assistant IA">◈ IA</button>
+      <button class="toolbar-tab" data-panel="proxy" title="Proxy d'interception">⬡ PROXY</button>
+      <button class="toolbar-tab" data-panel="hex" title="Hex Viewer">⬢ HEX</button>
+    </div>
+    <div class="toolbar-info">
+      <span id="info-requests">Req: 0</span>
+      <span id="info-intercepted">Int: 0</span>
+      <span id="info-alerts">Alertes: 0</span>
+      <span id="info-ua" title="User-Agent actuel">UA: —</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- COMMAND PALETTE (OVERLAY)                                      -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="command-palette" class="command-palette hidden">
+    <div class="palette-backdrop"></div>
+    <div class="palette-container">
+      <input type="text" id="palette-input" class="palette-input" placeholder="Tapez une commande..." spellcheck="false" autocomplete="off">
+      <div id="palette-results" class="palette-results">
+        <!-- Résultats de recherche de commandes -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- TOAST NOTIFICATIONS (OVERLAY)                                  -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- SCRIPTS                                                        -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <script src="renderer.js"></script>
+  <script src="components/command-palette.js"></script>
+  <script src="components/hex-viewer.js"></script>
+
+</body>
+</html>
