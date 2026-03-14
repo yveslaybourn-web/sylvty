@@ -97,10 +97,17 @@ function getSearchUrl(query) {
 function buildUrlFromInput(input) {
   let url = input.trim();
   if (!url) return null;
+  // Déjà une URL complète
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.includes('.') && !url.includes(' ') && !url.includes('?')) {
-    return 'https://' + url;
+  // Ressemble à un domaine (contient un point, pas d'espace, TLD valide)
+  if (url.includes('.') && !url.includes(' ')) {
+    const parts = url.split('.');
+    const tld = parts[parts.length - 1].split('/')[0].split('?')[0];
+    if (tld.length >= 2 && tld.length <= 10 && /^[a-zA-Z]+$/.test(tld)) {
+      return 'https://' + url;
+    }
   }
+  // Tout le reste → recherche
   return getSearchUrl(url);
 }
 
@@ -371,21 +378,29 @@ function updateUrlBar(url) {
 }
 
 /**
- * Résoudre les informations IP de l'URL courante
+ * Résoudre les informations IP de l'URL courante (non-bloquant)
  */
-async function resolveUrlInfo(url) {
-  try {
-    const info = await window.shadownet.system.getUrlInfo(url);
-    const ipSpan = document.getElementById('url-ip');
-    if (info.ip && info.ip !== 'N/A') {
+function resolveUrlInfo(url) {
+  const ipSpan = document.getElementById('url-ip');
+  if (!ipSpan) return;
+
+  // Réinitialiser pendant le chargement
+  ipSpan.textContent = '...';
+  ipSpan.style.color = 'var(--text-muted)';
+
+  // Résolution asynchrone sans bloquer la navigation
+  window.shadownet.system.getUrlInfo(url).then(info => {
+    if (info && info.ip && info.ip !== 'N/A') {
       ipSpan.textContent = info.ip;
       ipSpan.style.color = 'var(--neon-green)';
     } else {
       ipSpan.textContent = '—';
+      ipSpan.style.color = 'var(--text-muted)';
     }
-  } catch {
-    document.getElementById('url-ip').textContent = '—';
-  }
+  }).catch(() => {
+    ipSpan.textContent = '—';
+    ipSpan.style.color = 'var(--text-muted)';
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════

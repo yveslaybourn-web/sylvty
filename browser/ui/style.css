@@ -221,34 +221,41 @@ html, body {
   height: var(--navbar-height);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 0 8px;
-  gap: 8px;
+  padding: 0 6px;
+  gap: 4px;
 }
 
 .nav-controls {
   display: flex;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 .nav-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .nav-btn:hover {
   background: var(--bg-hover);
   color: var(--neon-cyan);
   border-color: var(--border-accent);
+}
+
+#btn-home {
+  color: var(--neon-cyan);
+  font-size: 15px;
 }
 
 /* Container URL avec info IP intégrée */
@@ -259,9 +266,11 @@ html, body {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  padding: 0 12px;
-  height: 32px;
+  padding: 0 8px;
+  height: 30px;
   transition: var(--transition-fast);
+  position: relative;
+  min-width: 0;
 }
 
 .url-container:focus-within {
@@ -273,10 +282,12 @@ html, body {
   color: var(--neon-green);
   font-size: 11px;
   margin-right: 2px;
+  flex-shrink: 0;
 }
 
 #url-bar {
   flex: 1;
+  min-width: 0;
   background: none;
   border: none;
   color: var(--text-primary);
@@ -289,40 +300,69 @@ html, body {
   color: var(--text-muted);
 }
 
+/* Sélecteur de moteur de recherche dans la barre */
+.search-engine-select {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--neon-cyan);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 3px;
+  margin-left: 4px;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  max-width: 80px;
+}
+
+.search-engine-select:hover {
+  border-color: var(--neon-cyan);
+}
+
+.search-engine-select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 .url-info {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 8px;
-  padding-left: 8px;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 6px;
   border-left: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .url-info span {
   color: var(--neon-green);
   font-size: 10px;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 /* Toggles d'outils rapides */
 .nav-tools {
   display: flex;
-  gap: 4px;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
 .tool-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .tool-btn:hover {
@@ -1761,30 +1801,6 @@ kbd {
    UX AMÉLIORÉE — RECHERCHE, SUGGESTIONS, ACCUEIL
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Sélecteur de moteur de recherche */
-.search-engine-select {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
-  color: var(--neon-cyan);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 4px;
-  margin-left: 6px;
-  cursor: pointer;
-  outline: none;
-  max-width: 90px;
-}
-
-.search-engine-select:hover {
-  border-color: var(--neon-cyan);
-}
-
-.search-engine-select option {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
 /* Dropdown de suggestions */
 .url-suggestions {
   position: absolute;
@@ -1852,11 +1868,6 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* URL container position relative pour les suggestions */
-.url-container {
-  position: relative;
 }
 
 /* Barre de recherche de l'écran d'accueil */
