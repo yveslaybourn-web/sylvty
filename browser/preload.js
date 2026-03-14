@@ -47,7 +47,10 @@ contextBridge.exposeInMainWorld('shadownet', {
     forward: (requestId) => ipcRenderer.invoke('proxy:forward-request', { requestId }),
     drop: (requestId) => ipcRenderer.invoke('proxy:drop-request', { requestId }),
     replay: (requestData) => ipcRenderer.invoke('proxy:replay-request', { requestData }),
-    clearHistory: () => ipcRenderer.invoke('proxy:clear-history')
+    clearHistory: () => ipcRenderer.invoke('proxy:clear-history'),
+    getWSRequests: () => ipcRenderer.invoke('proxy:get-ws-requests'),
+    clearWS: () => ipcRenderer.invoke('proxy:clear-ws'),
+    getIDORCandidates: () => ipcRenderer.invoke('proxy:get-idor-candidates')
   },
 
   // ─── RECONNAISSANCE & OSINT ────────────────────────────────────────
@@ -147,6 +150,55 @@ contextBridge.exposeInMainWorld('shadownet', {
   pipe: {
     writeFile: (filePath, data) => ipcRenderer.invoke('pipe:write-file', { filePath, data }),
     appendFile: (filePath, data) => ipcRenderer.invoke('pipe:append-file', { filePath, data })
+  },
+
+  // ─── CONFIG & PERSISTANCE ──────────────────────────────────────────
+  config: {
+    get: (key, defaultValue) => ipcRenderer.invoke('config:get', { key, defaultValue }),
+    set: (key, value) => ipcRenderer.invoke('config:set', { key, value }),
+    getAll: () => ipcRenderer.invoke('config:get-all')
+  },
+
+  // ─── EXPORT ────────────────────────────────────────────────────────
+  export: {
+    json: (data) => ipcRenderer.invoke('export:json', { data }),
+    markdown: (data) => ipcRenderer.invoke('export:markdown', { data }),
+    html: (data) => ipcRenderer.invoke('export:html', { data })
+  },
+
+  // ─── BOOKMARKS ─────────────────────────────────────────────────────
+  bookmarks: {
+    add: (name, url) => ipcRenderer.invoke('bookmarks:add', { name, url }),
+    remove: (id) => ipcRenderer.invoke('bookmarks:remove', { id }),
+    list: () => ipcRenderer.invoke('bookmarks:list')
+  },
+
+  // ─── HISTORIQUE ────────────────────────────────────────────────────
+  history: {
+    add: (url, title) => ipcRenderer.invoke('history:add', { url, title }),
+    get: () => ipcRenderer.invoke('history:get'),
+    clear: () => ipcRenderer.invoke('history:clear')
+  },
+
+  // ─── SCOPE MANAGER ────────────────────────────────────────────────
+  scope: {
+    add: (domain) => ipcRenderer.invoke('scope:add', { domain }),
+    remove: (domain) => ipcRenderer.invoke('scope:remove', { domain }),
+    list: () => ipcRenderer.invoke('scope:list'),
+    check: (url) => ipcRenderer.invoke('scope:check', { url }),
+    setMode: (mode) => ipcRenderer.invoke('scope:set-mode', { mode })
+  },
+
+  // ─── NOTES & FINDINGS ─────────────────────────────────────────────
+  notes: {
+    save: (text) => ipcRenderer.invoke('notes:save', { text }),
+    get: () => ipcRenderer.invoke('notes:get')
+  },
+
+  findings: {
+    add: (finding) => ipcRenderer.invoke('findings:add', finding),
+    remove: (id) => ipcRenderer.invoke('findings:remove', { id }),
+    list: () => ipcRenderer.invoke('findings:list')
   },
 
   // ─── ÉVÉNEMENTS (Écoute depuis le main process) ────────────────────

@@ -25,6 +25,9 @@ const { SessionManager } = require('./core/session-manager');
 const { EvasionEngine } = require('./modules/evasion-engine');
 const { ForensicMode } = require('./modules/forensic-mode');
 const { ScriptInjectorEngine } = require('./modules/script-injector-engine');
+const { ConfigManager } = require('./modules/config-manager');
+const { ExportEngine } = require('./modules/export-engine');
+const { ScopeManager } = require('./modules/scope-manager');
 
 // ═══════════════════════════════════════════════════════════════════════
 // VARIABLES GLOBALES
@@ -36,6 +39,9 @@ let sessionManager = null;
 let evasionEngine = null;
 let forensicMode = null;
 let scriptInjector = null;
+let configManager = null;
+let exportEngine = null;
+let scopeManager = null;
 let ptyProcess = null; // Terminal PTY
 
 // Liste blanche des canaux IPC autorisés — Sécurité : empêche l'accès
@@ -63,7 +69,23 @@ const ALLOWED_IPC_CHANNELS = [
   // Système
   'sys:get-resources', 'sys:get-url-info',
   // Commandes palette
-  'command:execute'
+  'command:execute',
+  // Config & persistance
+  'config:get', 'config:set', 'config:get-all',
+  // Export
+  'export:json', 'export:markdown', 'export:html',
+  // Bookmarks
+  'bookmarks:add', 'bookmarks:remove', 'bookmarks:list',
+  // Historique
+  'history:add', 'history:get', 'history:clear',
+  // WebSocket
+  'proxy:get-ws-requests', 'proxy:clear-ws',
+  // IDOR
+  'proxy:get-idor-candidates',
+  // Scope
+  'scope:add', 'scope:remove', 'scope:list', 'scope:check', 'scope:set-mode',
+  // Notes & findings
+  'notes:save', 'notes:get', 'findings:add', 'findings:remove', 'findings:list'
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -146,6 +168,15 @@ function initSecurityModules() {
 
   // Initialiser le script injector
   scriptInjector = new ScriptInjectorEngine();
+
+  // Initialiser le gestionnaire de configuration (persistance)
+  configManager = new ConfigManager();
+
+  // Initialiser le moteur d'export
+  exportEngine = new ExportEngine();
+
+  // Initialiser le gestionnaire de scope
+  scopeManager = new ScopeManager(configManager);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -241,10 +272,12 @@ function registerIPCHandlers() {
   // ─── RECONNAISSANCE & OSINT ────────────────────────────────────────
 
   ipcMain.handle('recon:whois', async (event, { domain }) => {
-    // WHOIS lookup via DNS résolution
+    if (!validateDomain(domain)) {
+      return { domain, error: 'Domaine invalide' };
+    }
     const dns = require('dns').promises;
     try {
-      const addresses = await dns.resolve4(domain);
+      const addresses = await withTimeout(dns.resolve4(domain), 10000, 'DNS timeout');
       const mx = await dns.resolveMx(domain).catch(() => []);
       const ns = await dns.resolveNs(domain).catch(() => []);
       const txt = await dns.resolveTxt(domain).catch(() => []);
@@ -260,23 +293,28 @@ function registerIPCHandlers() {
   });
 
   ipcMain.handle('recon:headers', async (event, { url }) => {
+    if (!validateUrl(url)) {
+      return { error: 'URL invalide — utilisez http:// ou https://' };
+    }
     const https = require(url.startsWith('https') ? 'https' : 'http');
     return new Promise((resolve) => {
       const req = https.request(url, { method: 'HEAD' }, (res) => {
         resolve({ statusCode: res.statusCode, headers: res.headers });
       });
       req.on('error', (err) => resolve({ error: err.message }));
-      req.setTimeout(10000, () => { req.destroy(); resolve({ error: 'Timeout' }); });
+      req.setTimeout(10000, () => { req.destroy(); resolve({ error: 'Timeout (10s)' }); });
       req.end();
     });
   });
 
   ipcMain.handle('recon:subdomains', async (event, { domain }) => {
-    // Énumération passive de sous-domaines via crt.sh (Certificate Transparency)
+    if (!validateDomain(domain)) {
+      return { domain, subdomains: [], error: 'Domaine invalide' };
+    }
     const https = require('https');
     return new Promise((resolve) => {
       const url = `https://crt.sh/?q=%.${encodeURIComponent(domain)}&output=json`;
-      https.get(url, (res) => {
+      const req = https.get(url, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
@@ -288,13 +326,16 @@ function registerIPCHandlers() {
             resolve({ domain, subdomains: [], error: 'Erreur de parsing' });
           }
         });
-      }).on('error', (err) => resolve({ domain, subdomains: [], error: err.message }));
+      });
+      req.on('error', (err) => resolve({ domain, subdomains: [], error: err.message }));
+      req.setTimeout(15000, () => { req.destroy(); resolve({ domain, subdomains: [], error: 'Timeout (15s)' }); });
     });
   });
 
   ipcMain.handle('recon:dirscan', async (event, { baseUrl, wordlist }) => {
-    // Scanner de répertoires cachés (DirBuster lite)
-    // Utilise une wordlist par défaut de chemins courants
+    if (!validateUrl(baseUrl)) {
+      return { baseUrl, results: [], error: 'URL de base invalide' };
+    }
     const defaultPaths = [
       '.git/', '.git/HEAD', '.env', '.htaccess', '.htpasswd',
       'robots.txt', 'sitemap.xml', '.well-known/security.txt',
@@ -311,7 +352,6 @@ function registerIPCHandlers() {
     const https = require(baseUrl.startsWith('https') ? 'https' : 'http');
     const results = [];
 
-    // Scanner séquentiellement pour éviter de surcharger le serveur cible
     for (const p of paths) {
       const targetUrl = `${baseUrl.replace(/\/$/, '')}/${p}`;
       try {
@@ -327,8 +367,10 @@ function registerIPCHandlers() {
           results.push({ path: p, status, url: targetUrl });
         }
       } catch {
-        // Ignorer les erreurs réseau silencieusement
+        // Ignorer les erreurs réseau
       }
+      // B7 — Rate limiting : 100ms entre chaque requête
+      await delay(100);
     }
     return { baseUrl, results };
   });
@@ -701,8 +743,13 @@ function registerIPCHandlers() {
   // ─── PIPE DATA TO FILE ────────────────────────────────────────────
 
   ipcMain.handle('pipe:write-file', async (event, { filePath, data }) => {
+    if (!isPathAllowed(filePath)) {
+      return { success: false, error: 'Chemin non autorisé — utilisez Downloads, Documents ou ~/shadownet-output/' };
+    }
     const fs = require('fs').promises;
     try {
+      const dir = require('path').dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
       await fs.writeFile(filePath, data, 'utf-8');
       return { success: true, path: filePath };
     } catch (err) {
@@ -711,13 +758,200 @@ function registerIPCHandlers() {
   });
 
   ipcMain.handle('pipe:append-file', async (event, { filePath, data }) => {
+    if (!isPathAllowed(filePath)) {
+      return { success: false, error: 'Chemin non autorisé — utilisez Downloads, Documents ou ~/shadownet-output/' };
+    }
     const fs = require('fs').promises;
     try {
+      const dir = require('path').dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
       await fs.appendFile(filePath, data + '\n', 'utf-8');
       return { success: true, path: filePath };
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // ─── CONFIG & PERSISTANCE (C9) ─────────────────────────────────────
+
+  ipcMain.handle('config:get', async (event, { key, defaultValue }) => {
+    return configManager.get(key, defaultValue);
+  });
+
+  ipcMain.handle('config:set', async (event, { key, value }) => {
+    configManager.set(key, value);
+    return { success: true };
+  });
+
+  ipcMain.handle('config:get-all', async () => {
+    return configManager.getAll();
+  });
+
+  // ─── EXPORT (C10) ──────────────────────────────────────────────────
+
+  ipcMain.handle('export:json', async (event, { data }) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exporter en JSON',
+      defaultPath: `shadownet-report-${Date.now()}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (!result.canceled && result.filePath) {
+      const fs = require('fs').promises;
+      await fs.writeFile(result.filePath, exportEngine.toJSON(data), 'utf-8');
+      return { success: true, path: result.filePath };
+    }
+    return { success: false, error: 'Export annulé' };
+  });
+
+  ipcMain.handle('export:markdown', async (event, { data }) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exporter en Markdown',
+      defaultPath: `shadownet-report-${Date.now()}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    });
+    if (!result.canceled && result.filePath) {
+      const fs = require('fs').promises;
+      await fs.writeFile(result.filePath, exportEngine.toMarkdown(data), 'utf-8');
+      return { success: true, path: result.filePath };
+    }
+    return { success: false, error: 'Export annulé' };
+  });
+
+  ipcMain.handle('export:html', async (event, { data }) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exporter en HTML',
+      defaultPath: `shadownet-report-${Date.now()}.html`,
+      filters: [{ name: 'HTML', extensions: ['html'] }]
+    });
+    if (!result.canceled && result.filePath) {
+      const fs = require('fs').promises;
+      await fs.writeFile(result.filePath, exportEngine.toHTML(data), 'utf-8');
+      return { success: true, path: result.filePath };
+    }
+    return { success: false, error: 'Export annulé' };
+  });
+
+  // ─── BOOKMARKS (C12) ──────────────────────────────────────────────
+
+  ipcMain.handle('bookmarks:add', async (event, { name, url }) => {
+    const bookmarks = configManager.get('bookmarks', []);
+    bookmarks.push({
+      id: `bm-${Date.now()}`,
+      name: name || url,
+      url,
+      addedAt: new Date().toISOString()
+    });
+    configManager.set('bookmarks', bookmarks);
+    return { success: true, bookmarks };
+  });
+
+  ipcMain.handle('bookmarks:remove', async (event, { id }) => {
+    let bookmarks = configManager.get('bookmarks', []);
+    bookmarks = bookmarks.filter(b => b.id !== id);
+    configManager.set('bookmarks', bookmarks);
+    return { success: true, bookmarks };
+  });
+
+  ipcMain.handle('bookmarks:list', async () => {
+    return configManager.get('bookmarks', []);
+  });
+
+  // ─── HISTORIQUE (C11) ──────────────────────────────────────────────
+
+  ipcMain.handle('history:add', async (event, { url, title }) => {
+    const history = configManager.get('history', []);
+    history.push({ url, title, visitedAt: new Date().toISOString() });
+    // Limiter à 500 entrées
+    if (history.length > 500) history.splice(0, history.length - 500);
+    configManager.set('history', history);
+    return { success: true };
+  });
+
+  ipcMain.handle('history:get', async () => {
+    return configManager.get('history', []);
+  });
+
+  ipcMain.handle('history:clear', async () => {
+    configManager.set('history', []);
+    return { success: true };
+  });
+
+  // ─── WEBSOCKET (D13) ──────────────────────────────────────────────
+
+  ipcMain.handle('proxy:get-ws-requests', async () => {
+    return interceptionProxy.getWSHistory();
+  });
+
+  ipcMain.handle('proxy:clear-ws', async () => {
+    interceptionProxy.clearWSHistory();
+    return { success: true };
+  });
+
+  // ─── IDOR (A3) ────────────────────────────────────────────────────
+
+  ipcMain.handle('proxy:get-idor-candidates', async () => {
+    return interceptionProxy.getIDORCandidates();
+  });
+
+  // ─── SCOPE MANAGER (D15) ──────────────────────────────────────────
+
+  ipcMain.handle('scope:add', async (event, { domain }) => {
+    if (!validateDomain(domain) && !domain.startsWith('*.')) {
+      return { success: false, error: 'Domaine invalide' };
+    }
+    scopeManager.addDomain(domain);
+    return { success: true, scope: scopeManager.getScope() };
+  });
+
+  ipcMain.handle('scope:remove', async (event, { domain }) => {
+    scopeManager.removeDomain(domain);
+    return { success: true, scope: scopeManager.getScope() };
+  });
+
+  ipcMain.handle('scope:list', async () => {
+    return { scope: scopeManager.getScope(), mode: scopeManager.getMode() };
+  });
+
+  ipcMain.handle('scope:check', async (event, { url }) => {
+    return scopeManager.checkScope(url);
+  });
+
+  ipcMain.handle('scope:set-mode', async (event, { mode }) => {
+    scopeManager.setMode(mode);
+    return { success: true, mode };
+  });
+
+  // ─── NOTES & FINDINGS (D16) ───────────────────────────────────────
+
+  ipcMain.handle('notes:save', async (event, { text }) => {
+    configManager.set('notes', text);
+    return { success: true };
+  });
+
+  ipcMain.handle('notes:get', async () => {
+    return { text: configManager.get('notes', '') };
+  });
+
+  ipcMain.handle('findings:add', async (event, finding) => {
+    const findings = configManager.get('findings', []);
+    findings.push({
+      id: `f-${Date.now()}`,
+      ...finding,
+      createdAt: new Date().toISOString()
+    });
+    configManager.set('findings', findings);
+    return { success: true, findings };
+  });
+
+  ipcMain.handle('findings:remove', async (event, { id }) => {
+    let findings = configManager.get('findings', []);
+    findings = findings.filter(f => f.id !== id);
+    configManager.set('findings', findings);
+    return { success: true, findings };
+  });
+
+  ipcMain.handle('findings:list', async () => {
+    return configManager.get('findings', []);
   });
 }
 
@@ -790,7 +1024,7 @@ function detectTechnologies(headers = {}, html = '', scripts = []) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// UTILITAIRES
+// UTILITAIRES & VALIDATION (B5-B8)
 // ═══════════════════════════════════════════════════════════════════════
 
 function extractDomain(url) {
@@ -799,6 +1033,83 @@ function extractDomain(url) {
   } catch {
     return 'unknown';
   }
+}
+
+/**
+ * B5 — Validation des chemins fichiers
+ * Empêche l'écriture dans des répertoires système ou sensibles
+ */
+function isPathAllowed(filePath) {
+  const os = require('os');
+  const pathModule = require('path');
+  const resolved = pathModule.resolve(filePath);
+
+  // Bloquer la traversée de répertoires
+  if (filePath.includes('..')) return false;
+
+  // Répertoires autorisés
+  const allowedDirs = [
+    app.getPath('downloads'),
+    app.getPath('documents'),
+    pathModule.join(os.homedir(), 'shadownet-output'),
+    app.getPath('desktop')
+  ];
+
+  // Répertoires système bloqués
+  const blockedPaths = [
+    '/etc', '/usr', '/bin', '/sbin', '/var', '/root/.ssh',
+    'C:\\Windows', 'C:\\Program Files', 'C:\\System32'
+  ];
+
+  for (const blocked of blockedPaths) {
+    if (resolved.startsWith(blocked)) return false;
+  }
+
+  for (const allowed of allowedDirs) {
+    if (resolved.startsWith(allowed)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * B8 — Validation des domaines
+ */
+function validateDomain(domain) {
+  if (!domain || typeof domain !== 'string') return false;
+  if (domain.length > 255) return false;
+  return /^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(domain);
+}
+
+/**
+ * B8 — Validation des URLs
+ */
+function validateUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * B6 — Wrapper timeout pour les promesses
+ */
+function withTimeout(promise, ms, errorMsg = 'Timeout') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
+  ]);
+}
+
+/**
+ * B7 — Délai entre les requêtes pour le rate limiting
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ═══════════════════════════════════════════════════════════════════════

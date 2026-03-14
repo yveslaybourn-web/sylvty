@@ -1756,3 +1756,104 @@ kbd {
     right: 10px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PHASE 3 — STYLES ADDITIONNELS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* A1 — Split Views */
+.split-view {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.split-view.hidden {
+  display: none;
+}
+
+#dom-tree-output,
+#headers-output,
+#response-output {
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--text-primary);
+  padding: 10px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* A4 — Network row hover for tampering */
+.network-row:hover {
+  background: rgba(0, 255, 65, 0.08) !important;
+}
+
+.network-row:active {
+  background: rgba(0, 255, 65, 0.15) !important;
+}
+
+/* C11 — History items */
+.history-item:hover {
+  background: rgba(0, 255, 65, 0.05);
+}
+
+/* D14 — Diff viewer */
+.diff-container {
+  border: 1px solid rgba(0, 255, 65, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.diff-col {
+  border-right: 1px solid rgba(0, 255, 65, 0.1);
+}
+
+.diff-col:last-child {
+  border-right: none;
+}
+
+/* D15 — Scope items */
+.scope-remove:hover {
+  background: rgba(255, 68, 68, 0.3) !important;
+}
+
+/* D16 — Finding severity badges */
+.severity-critical { color: #ff0040; }
+.severity-high { color: #ff6600; }
+.severity-medium { color: #ffaa00; }
+.severity-low { color: #00ccff; }
+.severity-info { color: #888; }
+
+/* Notes textarea */
+#pentest-notes {
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--neon-green);
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  border-radius: 4px;
+  font-family: 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 10px;
+}
+
+#pentest-notes:focus {
+  outline: none;
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
+}
+
+/* Toolbar overflow scrollable */
+.toolbar-tabs {
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neon-green) transparent;
+}
+
+.toolbar-tabs::-webkit-scrollbar {
+  height: 3px;
+}
+
+.toolbar-tabs::-webkit-scrollbar-thumb {
+  background: var(--neon-green);
+  border-radius: 2px;
+}

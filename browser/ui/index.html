@@ -152,21 +152,32 @@
           <button class="split-tab" data-panel="response">RÉPONSE</button>
         </div>
         <div id="split-content" class="split-content">
-          <!-- Contenu du panneau split, géré par renderer.js -->
-          <div class="network-table-container">
-            <table id="network-table" class="network-table">
-              <thead>
-                <tr>
-                  <th>Méthode</th>
-                  <th>URL</th>
-                  <th>Status</th>
-                  <th>Type</th>
-                  <th>Flags</th>
-                </tr>
-              </thead>
-              <tbody id="network-tbody">
-              </tbody>
-            </table>
+          <!-- A1 — Contenu dynamique du split-panel -->
+          <div id="split-network" class="split-view">
+            <div class="network-table-container">
+              <table id="network-table" class="network-table">
+                <thead>
+                  <tr>
+                    <th>Méthode</th>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Flags</th>
+                  </tr>
+                </thead>
+                <tbody id="network-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div id="split-dom" class="split-view hidden">
+            <pre id="dom-tree-output" class="results-container" style="margin:0;height:100%;overflow:auto;font-size:11px"></pre>
+          </div>
+          <div id="split-headers" class="split-view hidden">
+            <pre id="headers-output" class="results-container" style="margin:0;height:100%;overflow:auto;font-size:11px"></pre>
+          </div>
+          <div id="split-response" class="split-view hidden">
+            <pre id="response-output" class="results-container" style="margin:0;height:100%;overflow:auto;font-size:11px"></pre>
           </div>
         </div>
       </div>
@@ -319,6 +330,34 @@
           </div>
           <div id="replay-results" class="results-container"></div>
         </div>
+        <!-- A4 — Request Tampering Editor -->
+        <div class="panel-section">
+          <h4>Request Tampering</h4>
+          <p style="color:var(--text-muted);font-size:10px;margin-bottom:6px">Cliquez sur une requête dans le réseau pour la charger ici</p>
+          <select id="tamper-method" class="cyber-select">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+            <option value="PATCH">PATCH</option>
+            <option value="HEAD">HEAD</option>
+            <option value="OPTIONS">OPTIONS</option>
+          </select>
+          <input type="text" id="tamper-url" class="cyber-input" placeholder="URL de la requête">
+          <textarea id="tamper-headers" class="cyber-textarea" placeholder='Headers JSON...' rows="4"></textarea>
+          <textarea id="tamper-body" class="cyber-textarea" placeholder="Corps de la requête..." rows="4"></textarea>
+          <div style="display:flex;gap:4px;margin-top:6px">
+            <button class="action-btn" id="btn-tamper-send">Envoyer</button>
+            <button class="action-btn" id="btn-tamper-curl">Copier cURL</button>
+          </div>
+          <div id="tamper-results" class="results-container" style="margin-top:6px"></div>
+        </div>
+        <!-- IDOR Candidates -->
+        <div class="panel-section">
+          <h4>Candidats IDOR</h4>
+          <button class="action-btn" id="btn-refresh-idor">Rafraîchir</button>
+          <div id="idor-results" class="results-container" style="margin-top:6px"></div>
+        </div>
       </div>
 
       <!-- Panneau Hex Viewer -->
@@ -362,6 +401,107 @@
         <div id="terminal-container" class="terminal-container"></div>
       </div>
 
+      <!-- C11 — Panneau Historique -->
+      <div id="panel-history" class="tool-panel hidden">
+        <h3 class="panel-title">◈ HISTORIQUE</h3>
+        <div class="panel-section">
+          <button class="action-btn danger" id="btn-clear-history">Effacer l'historique</button>
+          <div id="history-list" class="results-container" style="margin-top:8px;max-height:500px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- C12 — Panneau Bookmarks / Cibles -->
+      <div id="panel-bookmarks" class="tool-panel hidden">
+        <h3 class="panel-title">◈ CIBLES & BOOKMARKS</h3>
+        <div class="panel-section">
+          <h4>Ajouter une cible</h4>
+          <input type="text" id="bookmark-name" class="cyber-input" placeholder="Nom de la cible">
+          <input type="text" id="bookmark-url" class="cyber-input" placeholder="URL (https://...)">
+          <button class="action-btn" id="btn-add-bookmark">Ajouter</button>
+        </div>
+        <div class="panel-section">
+          <h4>Cibles enregistrées</h4>
+          <div id="bookmarks-list" class="results-container" style="max-height:400px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- D14 — Panneau Diff Viewer -->
+      <div id="panel-diff" class="tool-panel hidden">
+        <h3 class="panel-title">◈ COMPARATEUR DIFF</h3>
+        <div class="panel-section">
+          <button class="action-btn" id="btn-diff-refresh">Charger les requêtes</button>
+          <div style="display:flex;gap:4px;margin-top:6px">
+            <select id="diff-select-a" class="cyber-select" style="flex:1">
+              <option value="" disabled selected>Requête A...</option>
+            </select>
+            <select id="diff-select-b" class="cyber-select" style="flex:1">
+              <option value="" disabled selected>Requête B...</option>
+            </select>
+          </div>
+          <button class="action-btn" id="btn-diff-compare" style="margin-top:6px">Comparer</button>
+        </div>
+        <div id="diff-output" class="results-container" style="margin-top:8px;max-height:500px;overflow:auto"></div>
+      </div>
+
+      <!-- D15 — Panneau Scope Manager -->
+      <div id="panel-scope" class="tool-panel hidden">
+        <h3 class="panel-title">◈ SCOPE MANAGER</h3>
+        <div class="panel-section">
+          <h4>Périmètre de test</h4>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <input type="text" id="scope-domain" class="cyber-input" placeholder="example.com ou *.example.com" style="flex:1">
+            <button class="action-btn" id="btn-add-scope">+</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:8px">
+            <label style="color:var(--text-secondary);font-size:11px;display:flex;align-items:center;gap:4px">
+              Mode:
+              <select id="scope-mode" class="cyber-select" style="width:auto">
+                <option value="warn">Warning</option>
+                <option value="strict">Strict</option>
+              </select>
+            </label>
+          </div>
+          <div id="scope-list" class="results-container"></div>
+        </div>
+      </div>
+
+      <!-- D16 — Panneau Notes & Rapport -->
+      <div id="panel-notes" class="tool-panel hidden">
+        <h3 class="panel-title">◈ NOTES & RAPPORT</h3>
+        <div class="panel-section">
+          <h4>Notes de pentest</h4>
+          <textarea id="pentest-notes" class="cyber-textarea" placeholder="Prenez des notes pendant votre session..." rows="10" style="width:100%;resize:vertical"></textarea>
+          <button class="action-btn" id="btn-save-notes" style="margin-top:4px">Sauvegarder</button>
+        </div>
+        <div class="panel-section">
+          <h4>Ajouter un Finding</h4>
+          <input type="text" id="finding-title" class="cyber-input" placeholder="Titre du finding">
+          <select id="finding-severity" class="cyber-select">
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+            <option value="info">Info</option>
+          </select>
+          <textarea id="finding-desc" class="cyber-textarea" placeholder="Description..." rows="3"></textarea>
+          <textarea id="finding-poc" class="cyber-textarea" placeholder="PoC (Proof of Concept)..." rows="2"></textarea>
+          <textarea id="finding-rec" class="cyber-textarea" placeholder="Recommandation..." rows="2"></textarea>
+          <button class="action-btn" id="btn-add-finding">Ajouter Finding</button>
+        </div>
+        <div class="panel-section">
+          <h4>Findings enregistrés</h4>
+          <div id="findings-list" class="results-container" style="max-height:300px;overflow-y:auto"></div>
+        </div>
+        <div class="panel-section">
+          <h4>Générer Rapport</h4>
+          <div style="display:flex;gap:4px">
+            <button class="action-btn" id="btn-export-json">JSON</button>
+            <button class="action-btn" id="btn-export-md">Markdown</button>
+            <button class="action-btn" id="btn-export-html">HTML</button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -379,6 +519,11 @@
       <button class="toolbar-tab" data-panel="hex" title="Hex Viewer">⬢ HEX</button>
       <button class="toolbar-tab" data-panel="scriptinject" title="Script Injector">💉 INJECT</button>
       <button class="toolbar-tab" data-panel="terminal" title="Terminal intégré">⌨ TERM</button>
+      <button class="toolbar-tab" data-panel="history" title="Historique">⏱ HIST</button>
+      <button class="toolbar-tab" data-panel="bookmarks" title="Cibles & Bookmarks">⊕ TARGETS</button>
+      <button class="toolbar-tab" data-panel="diff" title="Comparateur Diff">⇔ DIFF</button>
+      <button class="toolbar-tab" data-panel="scope" title="Scope Manager">⊙ SCOPE</button>
+      <button class="toolbar-tab" data-panel="notes" title="Notes & Rapport">✎ NOTES</button>
     </div>
     <div class="toolbar-info">
       <span id="info-requests">Req: 0</span>
@@ -414,6 +559,7 @@
   <script src="components/command-palette.js"></script>
   <script src="components/hex-viewer.js"></script>
   <script src="components/hacker-panel.js"></script>
+  <script src="components/diff-viewer.js"></script>
 
 </body>
 </html>

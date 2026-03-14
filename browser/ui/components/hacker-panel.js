@@ -517,6 +517,12 @@
         }
         panelState.secretsFound = totalFound;
         refreshModuleStatus('secrets-hunter');
+
+        // Mettre à jour les indicateurs UI
+        const secretsInfo = document.getElementById('info-secrets');
+        if (secretsInfo) secretsInfo.textContent = totalFound > 0 ? `Secrets: ${totalFound}` : '';
+        const secretsIndicator = document.getElementById('secrets-indicator');
+        if (secretsIndicator) secretsIndicator.className = totalFound > 0 ? 'indicator on' : 'indicator off';
       } catch { /* Page non accessible */ }
     }, 5000);
   }
@@ -543,12 +549,15 @@
       }
 
       try {
+        // Utiliser le backend IDOR detection + scan local
+        const candidates = await window.shadownet.proxy.getIDORCandidates();
         const requests = await window.shadownet.proxy.getRequests();
-        let idorCount = 0;
+        let idorCount = candidates ? candidates.length : 0;
 
+        // Scan additionnel côté renderer
         for (const req of requests) {
           for (const pattern of idorPatterns) {
-            pattern.lastIndex = 0; // Reset regex
+            pattern.lastIndex = 0;
             if (pattern.test(req.url)) {
               idorCount++;
               break;
@@ -557,8 +566,12 @@
         }
 
         if (idorCount > panelState.idorPatterns) {
+          const newCount = idorCount - panelState.idorPatterns;
           panelState.idorPatterns = idorCount;
           refreshModuleStatus('idor-scanner');
+          if (newCount > 0) {
+            window.showToast('warning', 'IDOR Détecté', `${newCount} nouveau(x) pattern(s) IDOR — vérifiez le panneau Proxy`);
+          }
         }
       } catch { /* Ignorer */ }
     }, 8000);
